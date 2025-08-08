@@ -1,0 +1,17 @@
+# Node dependencies
+node_modules/
+
+# Logs
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# SQLite database file
+effenza.db
+
+# Environment variables
+.env
+
+# OS-specific files
+.DS_Store
+Thumbs.db
