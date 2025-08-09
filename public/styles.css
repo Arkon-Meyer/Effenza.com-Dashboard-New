@@ -1,0 +1,38 @@
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+body { margin: 0; background:#0b0b10; color:#e9eef5; }
+header, footer { padding: 16px 20px; background:#111321; border-bottom:1px solid #1d2135; }
+header h1 { margin:0 0 4px; font-size:20px; }
+header p { margin:0; color:#9fb0c7; }
+footer { border-top:1px solid #1d2135; border-bottom:none; color:#9fb0c7; }
+
+main.grid {
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px,1fr));
+  gap:16px;
+  padding:16px 20px;
+}
+
+section {
+  background:#121528;
+  border:1px solid #1d2135;
+  border-radius:8px;
+  padding:12px;
+}
+
+h2 { margin:0 0 10px; font-size:16px; }
+
+form { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+input, select {
+  padding:8px 10px; border-radius:6px; border:1px solid #27304a; background:#0e1122; color:#e9eef5;
+}
+button {
+  padding:8px 12px; border-radius:6px; border:1px solid #27304a; background:#1f2a4a; color:#e9eef5;
+  cursor:pointer;
+}
+button.secondary { background:#15203b; }
+
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th, td { padding:8px; border-bottom:1px solid #1d2135; }
+thead th { text-align:left; color:#9fb0c7; }
