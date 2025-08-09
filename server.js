@@ -1,27 +1,28 @@
 const express = require('express');
 const path = require('path');
+const app = express();
 const db = require('./database');
 const groupRoutes = require('./routes/groups');
 const usersRouter = require('./routes/users');
 const membershipsRouter = require('./routes/memberships');
 
-const app = express();
-
 // Middleware
 app.use(express.json());
-app.use(express.static('public')); // serve HTML/CSS/JS from public/
 
-// API Routes
+// Serve static files from "public" folder
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Routes
 app.use('/groups', groupRoutes);
 app.use('/users', usersRouter);
 app.use('/memberships', membershipsRouter);
 
-// Serve dashboard
-app.get('/admin', (_req, res) => {
+// Admin dashboard route
+app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.get('/', (_req, res) => {
+app.get('/', (req, res) => {
   res.send('Effenza Dashboard is up and running!');
 });
 
