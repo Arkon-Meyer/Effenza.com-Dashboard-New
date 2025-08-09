@@ -1,66 +1,66 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Effenza Admin</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta charset="UTF-8">
+  <title>Effenza Admin Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
-    <h1>Effenza Admin</h1>
+    <h1>Effenza Dashboard</h1>
     <p>Manage Groups, Users, and Memberships</p>
   </header>
 
   <main class="grid">
-    <!-- Groups -->
+    <!-- Groups Section -->
     <section>
       <h2>Groups</h2>
-      <form id="group-form">
-        <input id="group-name" placeholder="Group name" required />
+      <form id="groupForm">
+        <input type="text" id="groupName" placeholder="Group name" required>
         <button type="submit">Add Group</button>
       </form>
-      <button id="refresh-groups" class="secondary">Refresh</button>
-      <table id="groups-table">
-        <thead><tr><th>ID</th><th>Name</th></tr></thead>
+      <table id="groupsTable">
+        <thead>
+          <tr><th>ID</th><th>Name</th></tr>
+        </thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- Users -->
+    <!-- Users Section -->
     <section>
       <h2>Users</h2>
-      <form id="user-form">
-        <input id="user-name" placeholder="Name" required />
-        <input id="user-email" placeholder="Email" required />
+      <form id="userForm">
+        <input type="text" id="userName" placeholder="User name" required>
+        <input type="email" id="userEmail" placeholder="Email" required>
         <button type="submit">Add User</button>
       </form>
-      <button id="refresh-users" class="secondary">Refresh</button>
-      <table id="users-table">
-        <thead><tr><th>ID</th><th>Name</th><th>Email</th></tr></thead>
+      <table id="usersTable">
+        <thead>
+          <tr><th>ID</th><th>Name</th><th>Email</th></tr>
+        </thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- Memberships -->
+    <!-- Memberships Section -->
     <section>
       <h2>Memberships</h2>
-      <form id="membership-form">
-        <input id="m-user-id" type="number" placeholder="user_id" required />
-        <input id="m-group-id" type="number" placeholder="group_id" required />
-        <select id="m-role" required>
-          <option value="">Select role…</option>
-          <option>viewer</option>
-          <option>editor</option>
-          <option>group-admin</option>
-          <option>dashboard-admin</option>
+      <form id="membershipForm">
+        <input type="number" id="membershipUserId" placeholder="User ID" required>
+        <input type="number" id="membershipGroupId" placeholder="Group ID" required>
+        <select id="membershipRole" required>
+          <option value="">Select role</option>
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+          <option value="group-admin">Group Admin</option>
+          <option value="dashboard-admin">Dashboard Admin</option>
         </select>
         <button type="submit">Add Membership</button>
       </form>
-      <button id="refresh-memberships" class="secondary">Refresh</button>
-      <table id="memberships-table">
+      <table id="membershipsTable">
         <thead>
-          <tr><th>ID</th><th>User</th><th>Group</th><th>Role</th></tr>
+          <tr><th>ID</th><th>User ID</th><th>Group ID</th><th>Role</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -68,9 +68,9 @@
   </main>
 
   <footer>
-    <small>Effenza &middot; local admin panel</small>
+    Effenza © 2025
   </footer>
 
-  <script src="./script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
