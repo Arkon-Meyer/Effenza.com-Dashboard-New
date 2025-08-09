@@ -26,7 +26,7 @@ function msg(text, type = 'ok') {
   bar._t = setTimeout(() => bar.remove(), 2500);
 }
 
-// --- renderers ---
+// --- render helpers ---
 function rowActions(type, id) {
   return `
     <button class="mini edit" data-type="${type}" data-id="${id}">✏️</button>
@@ -34,7 +34,11 @@ function rowActions(type, id) {
   `;
 }
 
-// GROUPS
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+// ------- Groups -------
 async function loadGroups() {
   const rows = await api('/groups');
   const tbody = document.querySelector('#groups-table tbody');
@@ -43,8 +47,7 @@ async function loadGroups() {
       <td>${r.id}</td>
       <td>${escapeHtml(r.name)}</td>
       <td>${rowActions('group', r.id)}</td>
-    </tr>`
-  ).join('');
+    </tr>`).join('');
 }
 async function createGroup(e) {
   e.preventDefault();
@@ -57,7 +60,7 @@ async function createGroup(e) {
   } catch (e) { msg(e.message, 'err'); }
 }
 
-// USERS
+// ------- Users -------
 async function loadUsers() {
   const rows = await api('/users');
   const tbody = document.querySelector('#users-table tbody');
@@ -67,8 +70,7 @@ async function loadUsers() {
       <td>${escapeHtml(r.name)}</td>
       <td>${escapeHtml(r.email)}</td>
       <td>${rowActions('user', r.id)}</td>
-    </tr>`
-  ).join('');
+    </tr>`).join('');
 }
 async function createUser(e) {
   e.preventDefault();
@@ -84,7 +86,7 @@ async function createUser(e) {
   } catch (e) { msg(e.message, 'err'); }
 }
 
-// MEMBERSHIPS
+// ------- Memberships -------
 async function loadMemberships() {
   const rows = await api('/memberships');
   const tbody = document.querySelector('#memberships-table tbody');
@@ -95,8 +97,7 @@ async function loadMemberships() {
       <td>${r.group_name} (#${r.group_id})</td>
       <td>${r.role}</td>
       <td>${rowActions('membership', r.id)}</td>
-    </tr>`
-  ).join('');
+    </tr>`).join('');
 }
 async function createMembership(e) {
   e.preventDefault();
@@ -104,7 +105,6 @@ async function createMembership(e) {
   const group_id = Number(document.querySelector('#m-group-id').value);
   const role = document.querySelector('#m-role').value;
   if (!user_id || !group_id || !role) return msg('user_id, group_id, role required', 'err');
-
   try {
     await api('/memberships', { method:'POST', body: JSON.stringify({ user_id, group_id, role }) });
     msg('Membership created');
@@ -115,7 +115,7 @@ async function createMembership(e) {
   } catch (e) { msg(e.message, 'err'); }
 }
 
-// --- edit/delete handlers (event delegation) ---
+// --- edit/delete via event delegation ---
 document.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('button.mini');
   if (!btn) return;
@@ -123,20 +123,17 @@ document.addEventListener('click', async (ev) => {
   const id = Number(btn.dataset.id);
   if (!type || !id) return;
 
-  // DELETE
   if (btn.classList.contains('del')) {
     if (!confirm('Delete this item?')) return;
     try {
       if      (type === 'group')       await api(`/groups/${id}`, { method:'DELETE' });
       else if (type === 'user')        await api(`/users/${id}`, { method:'DELETE' });
       else if (type === 'membership')  await api(`/memberships/${id}`, { method:'DELETE' });
-      msg('Deleted');
-      refreshAll();
+      msg('Deleted'); refreshAll();
     } catch (e) { msg(e.message, 'err'); }
     return;
   }
 
-  // EDIT
   if (btn.classList.contains('edit')) {
     try {
       if (type === 'group') {
@@ -145,10 +142,12 @@ document.addEventListener('click', async (ev) => {
         await api(`/groups/${id}`, { method:'PUT', body: JSON.stringify({ name }) });
         msg('Group updated'); loadGroups();
       } else if (type === 'user') {
-        const current = getRowValues(btn);
-        const name = prompt('User name:', current[1] || '');
+        const tr = btn.closest('tr');
+        const currentName  = tr.children[1].textContent.trim();
+        const currentEmail = tr.children[2].textContent.trim();
+        const name  = prompt('User name:', currentName);
         if (name == null) return;
-        const email = prompt('User email:', current[2] || '');
+        const email = prompt('User email:', currentEmail);
         if (email == null) return;
         await api(`/users/${id}`, { method:'PUT', body: JSON.stringify({ name, email }) });
         msg('User updated'); loadUsers();
@@ -162,22 +161,13 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
-// helpers
-function getRowValues(button) {
-  const tr = button.closest('tr');
-  return Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim());
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-}
-
 function refreshAll(){ loadGroups(); loadUsers(); loadMemberships(); }
 
-// --- wire up forms and initial load ---
+// --- wire up forms + initial load ---
 window.addEventListener('DOMContentLoaded', () => {
   document.querySelector('#group-form').addEventListener('submit', createGroup);
   document.querySelector('#user-form').addEventListener('submit', createUser);
   document.querySelector('#membership-form').addEventListener('submit', createMembership);
   refreshAll();
+  console.log('script.js loaded'); // debug
 });
