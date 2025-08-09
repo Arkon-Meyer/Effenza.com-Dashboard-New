@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Effenza Admin Dashboard</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
@@ -12,45 +13,45 @@
   </header>
 
   <main class="grid">
-    <!-- Groups Section -->
+    <!-- Groups -->
     <section>
       <h2>Groups</h2>
-      <form id="groupForm">
-        <input type="text" id="groupName" placeholder="Group name" required>
+      <form id="group-form">
+        <input id="group-name" placeholder="Group name" required />
         <button type="submit">Add Group</button>
       </form>
-      <table id="groupsTable">
+      <table id="groups-table">
         <thead>
-          <tr><th>ID</th><th>Name</th></tr>
+          <tr><th>ID</th><th>Name</th><th>Actions</th></tr>
         </thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- Users Section -->
+    <!-- Users -->
     <section>
       <h2>Users</h2>
-      <form id="userForm">
-        <input type="text" id="userName" placeholder="User name" required>
-        <input type="email" id="userEmail" placeholder="Email" required>
+      <form id="user-form">
+        <input id="user-name" placeholder="User name" required />
+        <input id="user-email" type="email" placeholder="Email" required />
         <button type="submit">Add User</button>
       </form>
-      <table id="usersTable">
+      <table id="users-table">
         <thead>
-          <tr><th>ID</th><th>Name</th><th>Email</th></tr>
+          <tr><th>ID</th><th>Name</th><th>Email</th><th>Actions</th></tr>
         </thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- Memberships Section -->
+    <!-- Memberships -->
     <section>
       <h2>Memberships</h2>
-      <form id="membershipForm">
-        <input type="number" id="membershipUserId" placeholder="User ID" required>
-        <input type="number" id="membershipGroupId" placeholder="Group ID" required>
-        <select id="membershipRole" required>
-          <option value="">Select role</option>
+      <form id="membership-form">
+        <input id="m-user-id" type="number" placeholder="User ID" required />
+        <input id="m-group-id" type="number" placeholder="Group ID" required />
+        <select id="m-role" required>
+          <option value="">Select role…</option>
           <option value="viewer">Viewer</option>
           <option value="editor">Editor</option>
           <option value="group-admin">Group Admin</option>
@@ -58,9 +59,9 @@
         </select>
         <button type="submit">Add Membership</button>
       </form>
-      <table id="membershipsTable">
+      <table id="memberships-table">
         <thead>
-          <tr><th>ID</th><th>User ID</th><th>Group ID</th><th>Role</th></tr>
+          <tr><th>ID</th><th>User</th><th>Group</th><th>Role</th><th>Actions</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -68,7 +69,7 @@
   </main>
 
   <footer>
-    Effenza © 2025
+    <small>Effenza © 2025</small>
   </footer>
 
   <script src="script.js"></script>
