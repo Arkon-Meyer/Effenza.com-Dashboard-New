@@ -4,8 +4,8 @@
   "description": "Effenza collaborative dashboard backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+  "start": "nodemon server.js"
+}
   },
   "keywords": [],
   "author": "",
