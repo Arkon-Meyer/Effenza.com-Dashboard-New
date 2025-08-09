@@ -12,7 +12,7 @@ app.use(express.json());
 // Serve static files from "public" folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Routes
+// API routes
 app.use('/groups', groupRoutes);
 app.use('/users', usersRouter);
 app.use('/memberships', membershipsRouter);
@@ -22,11 +22,20 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Root route
 app.get('/', (req, res) => {
   res.send('Effenza Dashboard is up and running!');
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server is listening on port ${PORT}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use`);
+    process.exit(1);
+  } else {
+    throw err;
+  }
 });
