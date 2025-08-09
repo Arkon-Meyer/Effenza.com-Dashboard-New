@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');                 // NEW
 const app = express();
 const db = require('./database');
 
@@ -9,6 +10,9 @@ const membershipsRouter = require('./routes/memberships');
 
 app.use(express.json());
 
+// Static assets
+app.use(express.static('public'));            // NEW
+
 // Debug log for requests
 app.use((req, _res, next) => {
   console.log(`${req.method} ${req.url}`);
@@ -18,6 +22,11 @@ app.use((req, _res, next) => {
 app.use('/groups', groupRoutes);
 app.use('/users', usersRouter);
 app.use('/memberships', membershipsRouter);
+
+// Serve the dashboard at /admin
+app.get('/admin', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 app.get('/', (_req, res) => {
   res.send('Effenza Dashboard is up and running!');
