@@ -1,91 +1,59 @@
-// Helper to handle fetch errors neatly
-async function api(url, options) {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
-  }
-  return res.json().catch(() => ({}));
+async function fetchData(endpoint, tableId) {
+  const res = await fetch(endpoint);
+  const data = await res.json();
+  const tbody = document.querySelector(`#${tableId} tbody`);
+  tbody.innerHTML = '';
+  data.forEach(row => {
+    const tr = document.createElement('tr');
+    Object.values(row).forEach(val => {
+      const td = document.createElement('td');
+      td.textContent = val;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
 }
 
-// ------- Groups -------
-async function loadGroups() {
-  const rows = await api('/groups');
-  const tbody = document.querySelector('#groups-table tbody');
-  tbody.innerHTML = rows.map(r => `<tr><td>${r.id}</td><td>${r.name}</td></tr>`).join('');
-}
-async function createGroup(e) {
+// Groups
+document.getElementById('groupForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const name = document.querySelector('#group-name').value.trim();
-  if (!name) return;
-  await api('/groups', {
+  const name = document.getElementById('groupName').value;
+  await fetch('/groups', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name })
   });
-  document.querySelector('#group-name').value = '';
-  await loadGroups();
-}
+  fetchData('/groups', 'groupsTable');
+});
 
-// ------- Users -------
-async function loadUsers() {
-  const rows = await api('/users');
-  const tbody = document.querySelector('#users-table tbody');
-  tbody.innerHTML = rows.map(r => `<tr><td>${r.id}</td><td>${r.name}</td><td>${r.email}</td></tr>`).join('');
-}
-async function createUser(e) {
+// Users
+document.getElementById('userForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const name = document.querySelector('#user-name').value.trim();
-  const email = document.querySelector('#user-email').value.trim();
-  if (!name || !email) return;
-  await api('/users', {
+  const name = document.getElementById('userName').value;
+  const email = document.getElementById('userEmail').value;
+  await fetch('/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email })
   });
-  document.querySelector('#user-name').value = '';
-  document.querySelector('#user-email').value = '';
-  await loadUsers();
-}
+  fetchData('/users', 'usersTable');
+});
 
-// ------- Memberships -------
-async function loadMemberships() {
-  const rows = await api('/memberships');
-  const tbody = document.querySelector('#memberships-table tbody');
-  tbody.innerHTML = rows.map(r =>
-    `<tr><td>${r.id}</td><td>${r.user_name} (#${r.user_id})</td><td>${r.group_name} (#${r.group_id})</td><td>${r.role}</td></tr>`
-  ).join('');
-}
-async function createMembership(e) {
+// Memberships
+document.getElementById('membershipForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const user_id = Number(document.querySelector('#m-user-id').value);
-  const group_id = Number(document.querySelector('#m-group-id').value);
-  const role = document.querySelector('#m-role').value;
-  if (!user_id || !group_id || !role) return;
-  await api('/memberships', {
+  const user_id = parseInt(document.getElementById('membershipUserId').value);
+  const group_id = parseInt(document.getElementById('membershipGroupId').value);
+  const role = document.getElementById('membershipRole').value;
+  await fetch('/memberships', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id, group_id, role })
   });
-  document.querySelector('#m-user-id').value = '';
-  document.querySelector('#m-group-id').value = '';
-  document.querySelector('#m-role').value = '';
-  await loadMemberships();
-}
-
-// Wire up events
-window.addEventListener('DOMContentLoaded', () => {
-  document.querySelector('#group-form').addEventListener('submit', createGroup);
-  document.querySelector('#refresh-groups').addEventListener('click', loadGroups);
-
-  document.querySelector('#user-form').addEventListener('submit', createUser);
-  document.querySelector('#refresh-users').addEventListener('click', loadUsers);
-
-  document.querySelector('#membership-form').addEventListener('submit', createMembership);
-  document.querySelector('#refresh-memberships').addEventListener('click', loadMemberships);
-
-  // initial load
-  loadGroups();
-  loadUsers();
-  loadMemberships();
+  fetchData('/memberships', 'membershipsTable');
 });
+
+// Initial fetch
+fetchData('/groups', 'groupsTable');
+fetchData('/users', 'usersTable');
+fetchData('/memberships', 'membershipsTable');
