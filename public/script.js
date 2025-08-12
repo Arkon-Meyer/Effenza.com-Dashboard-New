@@ -1,173 +1,174 @@
-// --- helpers ---
-async function api(url, options = {}) {
-  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
+// Tiny helpers
+const $  = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts
+  });
   const text = await res.text();
-  let data;
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text || 'Invalid JSON' }; }
-  if (!res.ok) throw new Error(data?.error || `${res.status} ${res.statusText}`);
+  let data; try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
+  if (!res.ok) throw new Error(data?.error || `Request failed: ${res.status}`);
   return data;
 }
 
-function msg(text, type = 'ok') {
-  let bar = document.querySelector('#msgbar');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'msgbar';
-    Object.assign(bar.style, {
-      position:'fixed', right:'16px', bottom:'16px', padding:'10px 14px',
-      borderRadius:'6px', background: type==='ok' ? '#174a2a' : '#5b1a1a',
-      color:'#e9eef5', zIndex:9999, maxWidth:'70%', boxShadow:'0 6px 18px rgba(0,0,0,.4)'
-    });
-    document.body.appendChild(bar);
-  }
-  bar.style.background = type==='ok' ? '#174a2a' : '#5b1a1a';
-  bar.textContent = text;
-  clearTimeout(bar._t);
-  bar._t = setTimeout(() => bar.remove(), 2500);
-}
-
-// --- render helpers ---
-function rowActions(type, id) {
-  return `
-    <button class="mini edit" data-type="${type}" data-id="${id}">✏️</button>
-    <button class="mini del"  data-type="${type}" data-id="${id}">🗑️</button>
+function msg(text, kind = 'ok') {
+  const t = document.createElement('div');
+  t.textContent = text;
+  t.style.cssText = `
+    position:fixed; right:16px; bottom:16px; padding:10px 12px;
+    border-radius:8px; background:${kind==='ok'?'#1f6feb':'#a61b1b'}; color:white; z-index:9999;
   `;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 2200);
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+function rowActions(type, id) {
+  const wrap = document.createElement('div');
+  wrap.style.display = 'flex'; wrap.style.gap = '6px';
+
+  const edit = document.createElement('button');
+  edit.title = 'Edit'; edit.textContent = '✏️';
+  edit.onclick = () => beginEdit(type, id);
+
+  const del = document.createElement('button');
+  del.title = 'Delete'; del.textContent = '🗑️';
+  del.onclick = () => removeItem(type, id);
+
+  wrap.append(edit, del);
+  return wrap;
 }
 
-// ------- Groups -------
+// ---------- LOADERS ----------
 async function loadGroups() {
-  const rows = await api('/groups');
-  const tbody = document.querySelector('#groups-table tbody');
-  tbody.innerHTML = rows.map(r =>
-    `<tr>
-      <td>${r.id}</td>
-      <td>${escapeHtml(r.name)}</td>
-      <td>${rowActions('group', r.id)}</td>
-    </tr>`).join('');
-}
-async function createGroup(e) {
-  e.preventDefault();
-  const name = document.querySelector('#group-name').value.trim();
-  if (!name) return;
-  try {
-    await api('/groups', { method:'POST', body: JSON.stringify({ name }) });
-    msg('Group created'); document.querySelector('#group-name').value='';
-    loadGroups();
-  } catch (e) { msg(e.message, 'err'); }
+  const data = await api('/groups');
+  const tbody = $('#groups-table tbody'); tbody.innerHTML = '';
+  data.forEach(({id, name}) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${id}</td><td>${name}</td><td></td>`;
+    tr.lastChild.appendChild(rowActions('groups', id));
+    tbody.appendChild(tr);
+  });
+  return data;
 }
 
-// ------- Users -------
 async function loadUsers() {
-  const rows = await api('/users');
-  const tbody = document.querySelector('#users-table tbody');
-  tbody.innerHTML = rows.map(r =>
-    `<tr>
-      <td>${r.id}</td>
-      <td>${escapeHtml(r.name)}</td>
-      <td>${escapeHtml(r.email)}</td>
-      <td>${rowActions('user', r.id)}</td>
-    </tr>`).join('');
-}
-async function createUser(e) {
-  e.preventDefault();
-  const name = document.querySelector('#user-name').value.trim();
-  const email = document.querySelector('#user-email').value.trim();
-  if (!name || !email) return msg('Name and email required', 'err');
-  try {
-    await api('/users', { method:'POST', body: JSON.stringify({ name, email }) });
-    msg('User created');
-    document.querySelector('#user-name').value='';
-    document.querySelector('#user-email').value='';
-    loadUsers();
-  } catch (e) { msg(e.message, 'err'); }
+  const data = await api('/users');
+  const tbody = $('#users-table tbody'); tbody.innerHTML = '';
+  data.forEach(({id, name, email}) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${id}</td><td>${name}</td><td>${email}</td><td></td>`;
+    tr.lastChild.appendChild(rowActions('users', id));
+    tbody.appendChild(tr);
+  });
+  return data;
 }
 
-// ------- Memberships -------
 async function loadMemberships() {
-  const rows = await api('/memberships');
-  const tbody = document.querySelector('#memberships-table tbody');
-  tbody.innerHTML = rows.map(r =>
-    `<tr>
-      <td>${r.id}</td>
-      <td>${r.user_name} (#${r.user_id})</td>
-      <td>${r.group_name} (#${r.group_id})</td>
-      <td>${r.role}</td>
-      <td>${rowActions('membership', r.id)}</td>
-    </tr>`).join('');
+  const data = await api('/memberships');
+  const tbody = $('#memberships-table tbody'); tbody.innerHTML = '';
+  data.forEach(({id, user_name, group_name, role}) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${id}</td><td>${user_name}</td><td>${group_name}</td><td>${role}</td><td></td>`;
+    tr.lastChild.appendChild(rowActions('memberships', id));
+    tbody.appendChild(tr);
+  });
+  return data;
 }
-async function createMembership(e) {
+
+// ---------- MEMBERSHIP SELECTS ----------
+async function populateMembershipSelects() {
+  const [users, groups] = await Promise.all([ api('/users'), api('/groups') ]);
+  const uSel = $('#m-user-select'); const gSel = $('#m-group-select');
+  uSel.length = 1; gSel.length = 1; // keep placeholder
+  users.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = String(u.id);
+    opt.textContent = `${u.name} (${u.email})`;
+    uSel.appendChild(opt);
+  });
+  groups.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = String(g.id);
+    opt.textContent = g.name;
+    gSel.appendChild(opt);
+  });
+}
+
+// ---------- CREATE ----------
+async function createGroup(e){
   e.preventDefault();
-  const user_id = Number(document.querySelector('#m-user-id').value);
-  const group_id = Number(document.querySelector('#m-group-id').value);
-  const role = document.querySelector('#m-role').value;
-  if (!user_id || !group_id || !role) return msg('user_id, group_id, role required', 'err');
+  const name = $('#group-name').value.trim();
+  if (!name) return msg('Group name is required','err');
+  try { await api('/groups', { method:'POST', body: JSON.stringify({ name }) }); msg('Group created'); $('#group-name').value=''; refreshAll(); }
+  catch(e){ msg(e.message,'err'); }
+}
+
+async function createUser(e){
+  e.preventDefault();
+  const name  = $('#user-name').value.trim();
+  const email = $('#user-email').value.trim();
+  if (!name || !email) return msg('Name & email required','err');
+  try { await api('/users', { method:'POST', body: JSON.stringify({ name, email }) }); msg('User created'); $('#user-name').value=''; $('#user-email').value=''; refreshAll(); }
+  catch(e){ msg(e.message,'err'); }
+}
+
+async function createMembership(e){
+  e.preventDefault();
+  const user_id  = Number($('#m-user-select').value);
+  const group_id = Number($('#m-group-select').value);
+  const role     = $('#m-role').value;
+  if (!user_id || !group_id || !role) return msg('Select user, group & role','err');
   try {
     await api('/memberships', { method:'POST', body: JSON.stringify({ user_id, group_id, role }) });
-    msg('Membership created');
-    document.querySelector('#m-user-id').value='';
-    document.querySelector('#m-group-id').value='';
-    document.querySelector('#m-role').value='';
+    msg('Membership created'); $('#m-user-select').value=''; $('#m-group-select').value=''; $('#m-role').value='';
     loadMemberships();
-  } catch (e) { msg(e.message, 'err'); }
+  } catch(e){ msg(e.message,'err'); }
 }
 
-// --- edit/delete via event delegation ---
-document.addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('button.mini');
-  if (!btn) return;
-  const type = btn.dataset.type;
-  const id = Number(btn.dataset.id);
-  if (!type || !id) return;
-
-  if (btn.classList.contains('del')) {
-    if (!confirm('Delete this item?')) return;
-    try {
-      if      (type === 'group')       await api(`/groups/${id}`, { method:'DELETE' });
-      else if (type === 'user')        await api(`/users/${id}`, { method:'DELETE' });
-      else if (type === 'membership')  await api(`/memberships/${id}`, { method:'DELETE' });
-      msg('Deleted'); refreshAll();
-    } catch (e) { msg(e.message, 'err'); }
-    return;
+// ---------- EDIT / DELETE ----------
+function beginEdit(type, id) {
+  let newVal;
+  if (type === 'groups') {
+    newVal = prompt('New group name:');
+    if (!newVal) return;
+    api(`/groups/${id}`, { method:'PUT', body: JSON.stringify({ name:newVal.trim() }) })
+      .then(()=>{ msg('Group updated'); refreshAll(); })
+      .catch(err=>msg(err.message,'err'));
+  } else if (type === 'users') {
+    const name  = prompt('New user name:');
+    const email = prompt('New email:');
+    if (!name || !email) return;
+    api(`/users/${id}`, { method:'PUT', body: JSON.stringify({ name:name.trim(), email:email.trim() }) })
+      .then(()=>{ msg('User updated'); refreshAll(); })
+      .catch(err=>msg(err.message,'err'));
+  } else {
+    const role = prompt("New role (viewer, editor, group-admin, dashboard-admin):");
+    if (!role) return;
+    api(`/memberships/${id}`, { method:'PUT', body: JSON.stringify({ role: role.trim() }) })
+      .then(()=>{ msg('Membership updated'); loadMemberships(); })
+      .catch(err=>msg(err.message,'err'));
   }
+}
 
-  if (btn.classList.contains('edit')) {
-    try {
-      if (type === 'group') {
-        const name = prompt('New group name:');
-        if (!name) return;
-        await api(`/groups/${id}`, { method:'PUT', body: JSON.stringify({ name }) });
-        msg('Group updated'); loadGroups();
-      } else if (type === 'user') {
-        const tr = btn.closest('tr');
-        const currentName  = tr.children[1].textContent.trim();
-        const currentEmail = tr.children[2].textContent.trim();
-        const name  = prompt('User name:', currentName);
-        if (name == null) return;
-        const email = prompt('User email:', currentEmail);
-        if (email == null) return;
-        await api(`/users/${id}`, { method:'PUT', body: JSON.stringify({ name, email }) });
-        msg('User updated'); loadUsers();
-      } else if (type === 'membership') {
-        const role = prompt('Role (viewer, editor, group-admin, dashboard-admin):', 'viewer');
-        if (!role) return;
-        await api(`/memberships/${id}`, { method:'PUT', body: JSON.stringify({ role }) });
-        msg('Membership updated'); loadMemberships();
-      }
-    } catch (e) { msg(e.message, 'err'); }
-  }
-});
+function removeItem(type, id) {
+  if (!confirm('Are you sure?')) return;
+  api(`/${type}/${id}`, { method:'DELETE' })
+    .then(()=>{ msg('Deleted'); refreshAll(); })
+    .catch(err=>msg(err.message,'err'));
+}
 
-function refreshAll(){ loadGroups(); loadUsers(); loadMemberships(); }
+// ---------- WIRE UP ----------
+$('#group-form')?.addEventListener('submit', createGroup);
+$('#user-form')?.addEventListener('submit', createUser);
+$('#membership-form')?.addEventListener('submit', createMembership);
 
-// --- wire up forms + initial load ---
-window.addEventListener('DOMContentLoaded', () => {
-  document.querySelector('#group-form').addEventListener('submit', createGroup);
-  document.querySelector('#user-form').addEventListener('submit', createUser);
-  document.querySelector('#membership-form').addEventListener('submit', createMembership);
-  refreshAll();
-  console.log('script.js loaded'); // debug
-});
+function refreshAll(){
+  // after groups/users load, repopulate selects for memberships
+  loadGroups().then(populateMembershipSelects);
+  loadUsers().then(populateMembershipSelects);
+  loadMemberships();
+}
+
+refreshAll();
