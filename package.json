@@ -4,11 +4,9 @@
   "description": "Effenza collaborative dashboard backend",
   "main": "server.js",
   "scripts": {
-  "start": "nodemon server.js"
-}
+    "start": "nodemon server.js"
   },
   "keywords": [],
-  "author": "",
   "license": "ISC",
   "dependencies": {
     "better-sqlite3": "^9.4.3",
