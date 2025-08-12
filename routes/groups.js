@@ -1,56 +1,51 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { isDashboardAdmin, canManageGroup } = require('../utils/acl');
 
-// GET /groups
+// GET /groups (everyone can read)
 router.get('/', (_req, res) => {
-  try {
-    const rows = db.prepare('SELECT id, name FROM groups ORDER BY id').all();
-    res.json(rows);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  const rows = db.prepare('SELECT id, name FROM groups ORDER BY id').all();
+  res.json(rows);
 });
 
-// POST /groups
+// POST /groups (dashboard-admin only)
 router.post('/', (req, res) => {
+  if (!req.actor || !isDashboardAdmin(req.actor.id)) {
+    return res.status(403).json({ error: 'dashboard-admin required' });
+  }
   const { name } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Group name is required' });
+  if (!name) return res.status(400).json({ error: 'name required' });
   try {
-    const info = db.prepare('INSERT INTO groups (name) VALUES (?)').run(name.trim());
+    const info = db.prepare('INSERT INTO groups(name) VALUES (?)').run(name.trim());
     res.status(201).json({ id: info.lastInsertRowid, name: name.trim() });
-  } catch (e) {
+  } catch {
     res.status(400).json({ error: 'Group name must be unique' });
   }
 });
 
-// PUT /groups/:id
+// PUT /groups/:id (group-admin of that group or dashboard-admin)
 router.put('/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const { name } = req.body;
-  if (!id || !name?.trim()) return res.status(400).json({ error: 'id and name required' });
-
-  try {
-    const info = db.prepare('UPDATE groups SET name=? WHERE id=?').run(name.trim(), id);
-    if (info.changes === 0) return res.status(404).json({ error: 'Group not found' });
-    res.json({ id, name: name.trim() });
-  } catch (e) {
-    res.status(400).json({ error: 'Group name must be unique' });
+  const groupId = Number(req.params.id);
+  if (!req.actor || !canManageGroup(req.actor.id, groupId)) {
+    return res.status(403).json({ error: 'not allowed' });
   }
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const info = db.prepare('UPDATE groups SET name=? WHERE id=?').run(name.trim(), groupId);
+  if (!info.changes) return res.status(404).json({ error: 'group not found' });
+  res.json({ id: groupId, name: name.trim() });
 });
 
-// DELETE /groups/:id
+// DELETE /groups/:id (dashboard-admin only — safer)
 router.delete('/:id', (req, res) => {
-  const id = Number(req.params.id);
-  if (!id) return res.status(400).json({ error: 'id required' });
-
-  try {
-    const info = db.prepare('DELETE FROM groups WHERE id=?').run(id);
-    if (info.changes === 0) return res.status(404).json({ error: 'Group not found' });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  if (!req.actor || !isDashboardAdmin(req.actor.id)) {
+    return res.status(403).json({ error: 'dashboard-admin required' });
   }
+  const id = Number(req.params.id);
+  const info = db.prepare('DELETE FROM groups WHERE id=?').run(id);
+  if (!info.changes) return res.status(404).json({ error: 'group not found' });
+  res.json({ ok: true });
 });
 
 module.exports = router;
