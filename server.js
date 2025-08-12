@@ -1,18 +1,18 @@
 const express = require('express');
 const path = require('path');
 const app = express();
+
 const db = require('./database');
 const groupRoutes = require('./routes/groups');
 const usersRouter = require('./routes/users');
 const membershipsRouter = require('./routes/memberships');
-const actor = require('./middleware/actor');   // NEW
+const actor = require('./middleware/actor'); // temp auth
 
 // Middleware
 app.use(express.json());
-app.use(actor());               // NEW: attaches req.actor if X-User-Id is present
-app.use(express.json());
+app.use(actor()); // attaches req.actor if X-User-Id header is present
 
-// Serve static files from "public" folder
+// Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API routes
@@ -20,17 +20,17 @@ app.use('/groups', groupRoutes);
 app.use('/users', usersRouter);
 app.use('/memberships', membershipsRouter);
 
-// Admin dashboard route
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Admin dashboard
+app.get('/admin', (_req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'index.html'))
+);
 
-// Root route
-app.get('/', (req, res) => {
+// Root
+app.get('/', (_req, res) => {
   res.send('Effenza Dashboard is up and running!');
 });
 
-// Start server
+// Start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server is listening on port ${PORT}`);
