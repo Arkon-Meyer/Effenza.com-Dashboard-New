@@ -1,5 +1,9 @@
 # Node dependencies
 node_modules/
+.env
+*.db
+*.db-shm
+*.db-wal
 
 # Logs
 npm-debug.log
