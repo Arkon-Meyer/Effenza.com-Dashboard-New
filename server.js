@@ -5,8 +5,11 @@ const db = require('./database');
 const groupRoutes = require('./routes/groups');
 const usersRouter = require('./routes/users');
 const membershipsRouter = require('./routes/memberships');
+const actor = require('./middleware/actor');   // NEW
 
 // Middleware
+app.use(express.json());
+app.use(actor());               // NEW: attaches req.actor if X-User-Id is present
 app.use(express.json());
 
 // Serve static files from "public" folder
