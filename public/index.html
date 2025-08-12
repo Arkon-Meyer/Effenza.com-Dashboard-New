@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>Effenza Admin Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/styles.css?v=3" />
+  <link rel="stylesheet" href="/styles.css?v=5" />
 </head>
 <body>
   <header>
@@ -47,9 +47,15 @@
     <!-- Memberships -->
     <section>
       <h2>Memberships</h2>
+
+      <!-- New: dropdowns instead of raw IDs -->
       <form id="membership-form">
-        <input id="m-user-id" type="number" placeholder="User ID" required />
-        <input id="m-group-id" type="number" placeholder="Group ID" required />
+        <select id="m-user-select" required>
+          <option value="">Select user…</option>
+        </select>
+        <select id="m-group-select" required>
+          <option value="">Select group…</option>
+        </select>
         <select id="m-role" required>
           <option value="">Select role…</option>
           <option value="viewer">Viewer</option>
@@ -59,6 +65,7 @@
         </select>
         <button type="submit">Add Membership</button>
       </form>
+
       <table id="memberships-table">
         <thead>
           <tr><th>ID</th><th>User</th><th>Group</th><th>Role</th><th>Actions</th></tr>
@@ -72,6 +79,6 @@
     <small>Effenza © 2025</small>
   </footer>
 
-  <script src="/script.js?v=3"></script>
+  <script src="/script.js?v=5"></script>
 </body>
 </html>
