@@ -5,7 +5,6 @@ const db = new Database('effenza.db');
 // Safety & performance
 db.pragma('foreign_keys = ON');
 db.pragma('journal_mode = WAL');
-db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uniq_membership ON memberships(user_id, group_id)').run();
 
 // Groups table
 db.prepare(`
@@ -36,6 +35,8 @@ db.prepare(`
   )
 `).run();
 
+// Indexes (run after table creation)
+db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uniq_membership ON memberships(user_id, group_id)').run();
 db.prepare('CREATE INDEX IF NOT EXISTS idx_memberships_user  ON memberships(user_id)').run();
 db.prepare('CREATE INDEX IF NOT EXISTS idx_memberships_group ON memberships(group_id)').run();
 
