@@ -3,27 +3,33 @@ const db = require('../database');
 
 module.exports = function actor() {
   return (req, _res, next) => {
-    const id = req.header('X-User-Id');
+    const raw = req.header('X-User-Id');
 
-    if (!id) {
+    if (!raw) {
       console.warn('[actor] Missing X-User-Id header');
+      return next();
+    }
+
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) {
+      console.warn(`[actor] Invalid X-User-Id value: "${raw}"`);
       return next();
     }
 
     try {
       const user = db
         .prepare('SELECT id, name, email FROM users WHERE id = ?')
-        .get(Number(id));
+        .get(id);
 
       if (user) {
-        req.actor = user;
+        req.actor = user;                 // attach current user
       } else {
-        console.warn(`[actor] Invalid X-User-Id: ${id}`);
+        console.warn(`[actor] No user found for id=${id}`);
       }
     } catch (err) {
-      console.error(`[actor] Error looking up user with id=${id}:`, err.message);
+      console.error(`[actor] DB lookup failed for id=${id}: ${err.message}`);
     }
 
     next();
   };
-};
+}
