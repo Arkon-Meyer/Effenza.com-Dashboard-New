@@ -5,14 +5,18 @@ const db = require('../database');
 
 // GET /users
 router.get('/', (_req, res) => {
-  const rows = db.prepare('SELECT id, name, email FROM users ORDER BY id').all();
-  res.json(rows);
+  const users = db.prepare('SELECT id, name, email FROM users').all();
+  res.json(users);
 });
 
-// 👇 ADD THIS — must be before /:id
-// GET /users/me  (requires header: X-User-Id: <id>)
+// GET /users/me  (uses req.actor set by middleware/actor)
 router.get('/me', (req, res) => {
-  if (!req.actor) return res.status(401).json({ error: 'Missing or invalid X-User-Id' });
+  if (!req.actor) {
+    return res.status(401).json({
+      error: 'Missing or invalid X-User-Id',
+      hint: 'Send a valid X-User-Id header matching a user in the database',
+    });
+  }
   res.json(req.actor);
 });
 
@@ -20,9 +24,12 @@ router.get('/me', (req, res) => {
 router.post('/', (req, res) => {
   const { name, email } = req.body || {};
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+
   try {
-    const info = db.prepare('INSERT INTO users (name, email) VALUES (?, ?)').run(name.trim(), email.trim());
-    res.status(201).json({ id: info.lastInsertRowid, name, email });
+    const info = db
+      .prepare('INSERT INTO users (name, email) VALUES (?, ?)')
+      .run(name.trim(), email.trim());
+    res.status(201).json({ id: info.lastInsertRowid, name: name.trim(), email: email.trim() });
   } catch (e) {
     res.status(400).json({ error: 'Email must be unique' });
   }
@@ -33,9 +40,13 @@ router.put('/:id', (req, res) => {
   const id = Number(req.params.id);
   const { name, email } = req.body || {};
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
-  const info = db.prepare('UPDATE users SET name = ?, email = ? WHERE id = ?').run(name.trim(), email.trim(), id);
+
+  const info = db
+    .prepare('UPDATE users SET name = ?, email = ? WHERE id = ?')
+    .run(name.trim(), email.trim(), id);
+
   if (!info.changes) return res.status(404).json({ error: 'User not found' });
-  res.json({ id, name, email });
+  res.json({ id, name: name.trim(), email: email.trim() });
 });
 
 // DELETE /users/:id
