@@ -1,23 +1,26 @@
 // middleware/actor.js
 const db = require('../database');
 
-// Color helpers
-const green = (msg) => `\x1b[32m${msg}\x1b[0m`;
-const yellow = (msg) => `\x1b[33m${msg}\x1b[0m`;
-const red = (msg) => `\x1b[31m${msg}\x1b[0m`;
+// ANSI color helpers (works in Codespaces terminal)
+const C = {
+  green: s => `\x1b[32m${s}\x1b[0m`,
+  yellow: s => `\x1b[33m${s}\x1b[0m`,
+  red: s => `\x1b[31m${s}\x1b[0m`,
+  dim: s => `\x1b[2m${s}\x1b[0m`,
+};
 
 module.exports = function actor() {
   return (req, _res, next) => {
     const raw = req.header('X-User-Id');
 
     if (!raw) {
-      console.warn(yellow('[actor] Missing X-User-Id header'));
+      console.warn(C.yellow('[actor] Missing X-User-Id header'));
       return next();
     }
 
     const id = Number(raw);
     if (!Number.isInteger(id) || id <= 0) {
-      console.warn(yellow(`[actor] Invalid X-User-Id value: "${raw}"`));
+      console.warn(C.yellow(`[actor] Invalid X-User-Id value: "${raw}"`));
       return next();
     }
 
@@ -27,15 +30,18 @@ module.exports = function actor() {
         .get(id);
 
       if (user) {
-        req.actor = user; // attach current user
-        console.log(green(`[actor] Attached user: id=${user.id}, name="${user.name}", email="${user.email}"`));
+        req.actor = user;
+        console.log(
+          C.green(`[actor] ✅ authenticated id=${id}`),
+          C.dim(`${user.name} <${user.email}>`)
+        );
       } else {
-        console.warn(yellow(`[actor] No user found for id=${id}`));
+        console.warn(C.yellow(`[actor] No user found for id=${id}`));
       }
     } catch (err) {
-      console.error(red(`[actor] DB lookup failed for id=${id}: ${err.message}`));
+      console.error(C.red(`[actor] DB lookup failed for id=${id}: ${err.message}`));
     }
 
     next();
   };
-};
+}
