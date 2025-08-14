@@ -1,28 +1,41 @@
 #!/usr/bin/env bash
-# scripts/dev-helpers.sh
+set -euo pipefail
 
-# Hard overwrite Codespaces with GitHub main (⚠️ discards local changes)
+# Pull + hard reset local to origin/main (DANGER: discards local changes)
 gsync() {
-  echo "[gsync] syncing Codespaces to origin/main (local changes will be lost)…"
-  git rebase --abort 2>/dev/null || true
-  git merge  --abort 2>/dev/null || true
-  git fetch origin main && git reset --hard origin/main && git clean -fd
+  git fetch origin main
+  git reset --hard origin/main
   echo "[gsync] done."
 }
 
-# Rebase your local work on top of GitHub main (keeps local edits)
+# Rebase local changes on top of origin/main (safe)
 grebase() {
-  echo "[grebase] pulling with rebase…"
-  git fetch origin main && git pull --rebase origin main
+  git fetch origin main
+  git rebase origin/main
   echo "[grebase] done."
 }
 
-# Fresh deps + rebuild sqlite + restart app (Codespaces)
+# Fresh deps + rebuild + restart app
 app-restart() {
   echo "[app-restart] using Node 20, reinstalling deps, rebuilding better-sqlite3, restarting…"
   nvm use 20 >/dev/null
-  rm -rf node_modules package-lock.json
-  npm ci
-  npm rebuild better-sqlite3
-  npm start
+
+  rm -rf node_modules
+
+  if [ -f package-lock.json ]; then
+    npm ci || npm install
+  else
+    npm install
+  fi
+
+  # rebuild native module; don't fail the whole script if rebuild is a no-op
+  npm rebuild better-sqlite3 || true
+
+  # ensure nodemon exists
+  if ! npx --yes nodemon -v >/dev/null 2>&1; then
+    npm i -D nodemon
+  fi
+
+  echo "> starting dev server with nodemon…"
+  npx nodemon server.js
 }
