@@ -1,41 +1,46 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Developer helpers for Codespaces & Repo sync
 
-# Pull + hard reset local to origin/main (DANGER: discards local changes)
+# Sync Codespaces from GitHub repo (⚠ deletes local changes)
 gsync() {
+  echo "[gsync] Hard resetting Codespaces to match remote main..."
   git fetch origin main
   git reset --hard origin/main
-  echo "[gsync] done."
+  git clean -fd
 }
 
-# Rebase local changes on top of origin/main (safe)
+# Rebase local changes on top of remote
 grebase() {
+  echo "[grebase] Rebasing local changes on top of remote main..."
   git fetch origin main
   git rebase origin/main
-  echo "[grebase] done."
 }
 
-# Fresh deps + rebuild + restart app
+# Kill anything on port 3000
+free-port() {
+  echo "[free-port] Killing processes on port 3000..."
+  npx --yes kill-port 3000 >/dev/null 2>&1 || true
+}
+
+# Restart app cleanly
 app-restart() {
-  echo "[app-restart] using Node 20, reinstalling deps, rebuilding better-sqlite3, restarting…"
+  echo "[app-restart] Using Node 20..."
   nvm use 20 >/dev/null
 
-  rm -rf node_modules
+  echo "[app-restart] Removing node_modules & lockfile..."
+  rm -rf node_modules package-lock.json
 
-  if [ -f package-lock.json ]; then
-    npm ci || npm install
-  else
-    npm install
-  fi
+  echo "[app-restart] Installing dependencies..."
+  npm install
 
-  # rebuild native module; don't fail the whole script if rebuild is a no-op
+  echo "[app-restart] Rebuilding better-sqlite3..."
   npm rebuild better-sqlite3 || true
 
-  # ensure nodemon exists
-  if ! npx --yes nodemon -v >/dev/null 2>&1; then
-    npm i -D nodemon
-  fi
+  free-port
 
-  echo "> starting dev server with nodemon…"
+  echo "[app-restart] Ensuring nodemon is installed..."
+  npx --yes nodemon -v >/dev/null 2>&1 || npm i -D nodemon
+
+  echo "[app-restart] Starting server with nodemon..."
   npx nodemon server.js
 }
