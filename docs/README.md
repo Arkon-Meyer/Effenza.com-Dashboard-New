@@ -2,15 +2,18 @@
 
 ## Security & Compliance
 
-We maintain a living checklist for security, GDPR compliance, and future ISO 27001 readiness in:
+- **Milestones plan:**  
+  [`docs/security/SECURITY_COMPLIANCE_MILESTONES.md`](security/SECURITY_COMPLIANCE_MILESTONES.md)
 
-[`docs/security/SECURITY_COMPLIANCE_TODO.md`](security/SECURITY_COMPLIANCE_TODO.md)
+- **Working checklist:**  
+  [`docs/security/SECURITY_COMPLIANCE_TODO.md`](security/SECURITY_COMPLIANCE_TODO.md)
 
-This document should be updated regularly as part of our development process to ensure:
-- Alignment with GDPR and privacy best practices
-- Implementation of encryption, access control, and logging
-- Clear roadmap toward ISO 27001 certification
+**Principles:** zero-knowledge by default, data minimization, least privilege, defense in depth, and full traceability.  
+Evidence, policies, and procedures will live under `docs/security/` and be version-controlled.
 
----
+## Contributing
+- Use PRs to merge into `main`.  
+- Each security/compliance change should reference a checklist item.  
+- CI must pass (lint/tests/security scans) before merge.
 
-_Last updated: $(date +"%Y-%m-%d")_
+_Last updated: {{YYYY-MM-DD}}_
