@@ -12,8 +12,19 @@
 Evidence, policies, and procedures will live under `docs/security/` and be version-controlled.
 
 ## Contributing
+
 - Use PRs to merge into `main`.  
 - Each security/compliance change should reference a checklist item.  
 - CI must pass (lint/tests/security scans) before merge.
 
-_Last updated: {{YYYY-MM-DD}}_
+---
+
+## 🔄 Codespaces ↔ Repo Sync Workflow
+
+We edit **in the GitHub repo first**, then sync into Codespaces.
+
+### Setup (one-time in Codespaces)
+
+```bash
+chmod +x scripts/dev-helpers.sh
+source scripts/dev-helpers.sh
