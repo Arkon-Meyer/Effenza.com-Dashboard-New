@@ -1,65 +1,44 @@
 # Security & Compliance TODO (ISO 27001 / GDPR Readiness)
 
-> Living document to track our incremental hardening and compliance steps.
+> Living checklist. Each item should map to an Issue/PR.
 
----
+## 1. Security & Privacy by Design
+- [ ] TLS everywhere; HSTS on public endpoints
+- [ ] Encrypt PII at rest; keys in Azure Key Vault; rotation doc
+- [ ] Secrets management (env/Key Vault); no secrets in repo/logs
+- [ ] Data minimization (review fields); data classification tags (PII/Confidential/Public)
 
-## 1. Identity, Access, and AuthZ
-- [ ] Introduce user accounts and sessions (no “X-User-Id” header in prod).
-- [ ] Role-based access control (viewer/editor/group-admin/dashboard-admin) enforced server-side.
-- [ ] Least-privilege defaults; deny by default.
-- [ ] Admin endpoints protected (authN + authZ).
-- [ ] Session management: secure cookies, SameSite, rotation, logout, inactivity timeout.
+## 2. Authentication & Authorization
+- [ ] Replace temp header auth with Azure AD (OIDC)
+- [ ] RBAC middleware on all write routes (viewer/editor/group-admin/dashboard-admin)
+- [ ] Least privilege defaults; deny-by-default patterns
+- [ ] Session security (short-lived cookies/JWT, SameSite/HttpOnly/Secure)
+- [ ] MFA for admin roles (policy)
 
-## 2. Data Protection & Privacy
-- [ ] Pseudonymize or minimize personal data (collect only what’s needed).
-- [ ] Data classification policy (Public / Internal / Confidential / Restricted).
-- [ ] Encryption in transit (TLS everywhere) and at rest (DB/file encryption; key mgmt).
-- [ ] Data retention & deletion policy; implement delete workflows (users, exports, backups).
-- [ ] Data subject rights (GDPR): export / rectify / delete / restrict processing.
+## 3. Audit & Logging
+- [ ] Structured JSON logs with user id, action, resource id, outcome, request id
+- [ ] Audit trail table for create/update/delete and privilege changes
+- [ ] Immutable copy of logs (Azure Blob immutability or equivalent)
+- [ ] User-facing activity history (their own actions)
+- [ ] Provider admin dashboard: metadata only (zero-knowledge)
 
-## 3. Application Security
-- [ ] Input validation & output encoding for all endpoints/UI (prevent injection/XSS).
-- [ ] Parameterized SQL (already using better-sqlite3 prepared statements).
-- [ ] Consistent error handling (no sensitive details in responses/logs).
-- [ ] Rate limiting & basic abuse protection on write endpoints.
-- [ ] CSRF protection for state-changing requests (if cookie-based auth).
-- [ ] Dependency hygiene (automated updates/audits, lockfile review).
+## 4. GDPR Compliance
+- [ ] Privacy policy: zero-knowledge, controller/processor clarity
+- [ ] Right to be forgotten (delete/anonymize) + test plan
+- [ ] Data export (JSON/CSV) + test plan
+- [ ] Retention schedule for logs & data; documented & enforced
+- [ ] DPA template; subprocessor list
 
-## 4. Logging, Monitoring, and Incident Response
-- [ ] Structured, contextual logs (user id, request id, action, outcome).
-- [ ] Centralized log storage with retention & tamper-resistance.
-- [ ] Basic metrics (requests, errors, latency) and alerts.
-- [ ] Security event logging (auth failures, privilege changes, deletion events).
-- [ ] Incident response runbook (detect, analyze, contain, eradicate, recover, post-mortem).
+## 5. Secure SDLC & Ops
+- [ ] Branch protection, PR reviews, CI status checks
+- [ ] CI: SAST (code scanning), dependency scan (Dependabot/audit)
+- [ ] Secrets scanning (pre-commit/CI)
+- [ ] Threat model diagram; risk register; asset inventory
+- [ ] Backups: encrypted, tested restore, documented RTO/RPO
 
-## 5. Secure SDLC & Change Control
-- [ ] Branch protection, PR reviews, and mandatory CI status checks.
-- [ ] CI pipeline for lint, tests, SCA (vuln scan), and container image scan (if applicable).
-- [ ] Secrets scanning (pre-commit & CI). No secrets in code or logs.
-- [ ] Reproducible builds; versioned artifacts; deployment approvals.
+## 6. Incident Response
+- [ ] IR plan with severity levels and contacts
+- [ ] Breach procedure (GDPR 72h); notification templates
+- [ ] Run one tabletop exercise pre-MVP; log outcomes
 
-## 6. Infrastructure & Backups
-- [ ] Backup strategy (frequency, encryption, offsite, restoration drills).
-- [ ] Hardening baseline (OS/containers), patched regularly.
-- [ ] Environment separation (dev/test/stage/prod) with isolated credentials.
-- [ ] Principle of least privilege for runtime identities/secrets.
-
-## 7. Policies & Documentation
-- [ ] Security policy (high-level commitments & responsibilities).
-- [ ] Access control policy; password/session standards.
-- [ ] Data protection & retention policy.
-- [ ] Vendor management (if third parties used): DPAs, subprocessors list.
-
-## 8. Risk & Audit
-- [ ] Asset inventory (systems, data stores, third parties).
-- [ ] Risk register (risks, owners, mitigation, review cadence).
-- [ ] Periodic internal audits; track findings to closure.
-- [ ] Pen test / external review before GA.
-
----
-
-### Notes
-- Keep this document updated as work progresses.
-- Each checkbox should map to an issue/PR for traceability.
-- Aim for “small, continuous improvements” rather than big-bang changes.
+_Keep this file updated per sprint._
