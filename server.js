@@ -1,36 +1,47 @@
+// server.js
 const express = require('express');
 const path = require('path');
+
 const app = express();
 
+// DB (kept so routes can import it confidently)
 const db = require('./database');
-const groupRoutes = require('./routes/groups');
-const usersRouter = require('./routes/users');
-const membershipsRouter = require('./routes/memberships');
-const actor = require('./middleware/actor'); // temp auth
+
+// Routers
+const groupRoutes        = require('./routes/groups');
+const usersRouter        = require('./routes/users');
+const membershipsRouter  = require('./routes/memberships');
+const orgUnitsRouter     = require('./routes/org-units');     // NEW
+const assignmentsRouter  = require('./routes/assignments');    // NEW
 
 // Middleware
+const actor = require('./middleware/actor'); // attaches req.actor if X-User-Id header is valid
+
+// Body parsing & auth context
 app.use(express.json());
-app.use(actor()); // attaches req.actor if X-User-Id header is present
+app.use(actor());
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API routes
-app.use('/groups', groupRoutes);
-app.use('/users', usersRouter);
-app.use('/memberships', membershipsRouter);
+app.use('/groups',        groupRoutes);
+app.use('/users',         usersRouter);
+app.use('/memberships',   membershipsRouter);
+app.use('/org-units',     orgUnitsRouter);     // NEW
+app.use('/assignments',   assignmentsRouter);  // NEW
 
 // Admin dashboard
-app.get('/admin', (_req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'index.html'))
-);
+app.get('/admin', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Root
 app.get('/', (_req, res) => {
   res.send('Effenza Dashboard is up and running!');
 });
 
-// Start
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server is listening on port ${PORT}`);
