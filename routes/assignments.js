@@ -1,53 +1,56 @@
-// routes/assignments.js
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { can } = require('../utils/authz');
 const { audit } = require('../utils/audit');
 
-// list assignments for a user (admin-only for now)
-router.get('/user/:userId', (req, res) => {
-  if (!can(req.actor, 'manage', 'users')) return res.status(403).json({ error:'Forbidden' });
-  const userId = Number(req.params.userId);
+// List a user's assignments (admin only for now)
+router.get('/user/:id', (req, res) => {
+  if (!can(req.actor, 'read', 'assignments')) return res.status(403).json({ error: 'Forbidden' });
+
+  const userId = Number(req.params.id);
   const rows = db.prepare(`
-    SELECT a.id, a.user_id, a.role_id, a.org_unit_id, r.key as role_key, r.name as role_name, ou.name as org_name, ou.type as org_type
+    SELECT a.id, a.user_id, a.role_id, a.org_unit_id,
+           r.key  AS role_key, r.name AS role_name,
+           ou.type AS org_type, ou.name AS org_name
     FROM assignments a
-    JOIN roles r ON r.id = a.role_id
+    JOIN roles r      ON r.id  = a.role_id
     LEFT JOIN org_units ou ON ou.id = a.org_unit_id
-    WHERE a.user_id=?
+    WHERE a.user_id = ?
+    ORDER BY a.id
   `).all(userId);
   res.json(rows);
 });
 
-// assign role to user at scope (org_unit_id nullable = tenant/global)
+// Create an assignment (admin only to keep simple)
 router.post('/', (req, res) => {
-  const { user_id, role_id, org_unit_id = null } = req.body || {};
-  if (!user_id || !role_id) return res.status(400).json({ error:'user_id and role_id required' });
+  if (!can(req.actor, 'create', 'assignments')) return res.status(403).json({ error: 'Forbidden' });
 
-  if (!can(req.actor, 'manage', 'users', { orgUnitId: org_unit_id || null })) {
-    return res.status(403).json({ error:'Forbidden' });
-  }
+  const { user_id, role_key, org_unit_id = null } = req.body || {};
+  if (!user_id || !role_key) return res.status(400).json({ error: 'user_id and role_key required' });
+
+  const role = db.prepare('SELECT id FROM roles WHERE key=?').get(String(role_key));
+  if (!role) return res.status(400).json({ error: 'invalid role_key' });
 
   const info = db.prepare(`
-    INSERT INTO assignments (user_id, role_id, org_unit_id) VALUES (?, ?, ?)
-  `).run(Number(user_id), Number(role_id), org_unit_id || null);
+    INSERT INTO assignments (user_id, role_id, org_unit_id)
+    VALUES (?, ?, ?)
+  `).run(Number(user_id), role.id, org_unit_id || null);
 
-  audit(req, { action:'assign', resource:'roles', resource_id:role_id, org_unit_id:org_unit_id || null, details:{ user_id } });
+  audit(req, { action:'create', resource:'assignments', resource_id: info.lastInsertRowid, org_unit_id: org_unit_id || null, details:{ user_id, role_key } });
   res.status(201).json(db.prepare('SELECT * FROM assignments WHERE id=?').get(info.lastInsertRowid));
 });
 
-// remove assignment
+// Delete an assignment (admin)
 router.delete('/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const a = db.prepare('SELECT * FROM assignments WHERE id=?').get(id);
-  if (!a) return res.status(404).json({ error:'Not found' });
+  if (!can(req.actor, 'delete', 'assignments')) return res.status(403).json({ error: 'Forbidden' });
 
-  if (!can(req.actor, 'manage', 'users', { orgUnitId: a.org_unit_id || null })) {
-    return res.status(403).json({ error:'Forbidden' });
-  }
+  const id = Number(req.params.id);
+  const row = db.prepare('SELECT * FROM assignments WHERE id=?').get(id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
 
   db.prepare('DELETE FROM assignments WHERE id=?').run(id);
-  audit(req, { action:'unassign', resource:'roles', resource_id:a.role_id, org_unit_id:a.org_unit_id || null, details:{ user_id:a.user_id } });
+  audit(req, { action:'delete', resource:'assignments', resource_id:id, org_unit_id: row.org_unit_id || null });
   res.status(204).end();
 });
 
