@@ -2,14 +2,15 @@
 # Developer helpers for Codespaces & Repo sync
 set -euo pipefail
 
-# Wait until API is healthy
+# Wait until API is healthy (checks /healthz first, then /), retries w/ backoff
 health() {
   local url="http://localhost:3000"
-  local retries=10
+  local retries=12
   local delay=1
 
   echo "[health] Checking API health at $url ..."
   for i in $(seq 1 $retries); do
+    # Prefer /healthz (JSON), fallback to /
     if curl -s -o /dev/null -w "%{http_code}" "$url/healthz" | grep -q '^200$'; then
       echo "[health] OK - /healthz responded with 200"
       return 0
@@ -31,7 +32,7 @@ free-port() {
   npx --yes kill-port 3000 >/dev/null 2>&1 || true
 }
 
-# Restart app cleanly
+# Restart app cleanly and wait for health
 app-restart() {
   echo "[app-restart] Using Node 20..."
   nvm use 20 >/dev/null
@@ -51,14 +52,18 @@ app-restart() {
   npx --yes nodemon -v >/dev/null 2>&1 || npm i -D nodemon
 
   echo "[app-restart] Starting server with nodemon..."
-  npx nodemon server.js &
+  # Run nodemon in background so we can health-check synchronously
+  npx nodemon server.js > /tmp/nodemon.log 2>&1 &
 
   # Wait for server to start and be healthy
   if ! health; then
     echo "[app-restart] ERROR - Server failed health check. Stopping nodemon."
-    kill %1 2>/dev/null || true
+    pkill -f "nodemon server.js" >/dev/null 2>&1 || true
+    echo "[app-restart] Last 40 lines of nodemon log:"
+    tail -n 40 /tmp/nodemon.log || true
     return 1
   fi
+
   echo "[app-restart] Server healthy ✅"
 }
 
