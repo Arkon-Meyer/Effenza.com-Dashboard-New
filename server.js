@@ -8,11 +8,12 @@ const app = express();
 const db = require('./database');
 
 // Routers
-const groupRoutes        = require('./routes/groups');
-const usersRouter        = require('./routes/users');
-const membershipsRouter  = require('./routes/memberships');
-const orgUnitsRouter     = require('./routes/org-units');     // NEW
-const assignmentsRouter  = require('./routes/assignments');    // NEW
+const groupRoutes       = require('./routes/groups');
+const usersRouter       = require('./routes/users');
+const membershipsRouter = require('./routes/memberships');
+const orgUnitsRouter    = require('./routes/org-units');
+const assignmentsRouter = require('./routes/assignments');
+const auditRouter       = require('./routes/audit');   // ← NEW
 
 // Middleware
 const actor = require('./middleware/actor'); // attaches req.actor if X-User-Id header is valid
@@ -24,12 +25,16 @@ app.use(actor());
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Simple health check
+app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
 // API routes
-app.use('/groups',        groupRoutes);
-app.use('/users',         usersRouter);
-app.use('/memberships',   membershipsRouter);
-app.use('/org-units',     orgUnitsRouter);     // NEW
-app.use('/assignments',   assignmentsRouter);  // NEW
+app.use('/groups',       groupRoutes);
+app.use('/users',        usersRouter);
+app.use('/memberships',  membershipsRouter);
+app.use('/org-units',    orgUnitsRouter);
+app.use('/assignments',  assignmentsRouter);
+app.use('/audit',        auditRouter);        // ← NEW
 
 // Admin dashboard
 app.get('/admin', (_req, res) => {
