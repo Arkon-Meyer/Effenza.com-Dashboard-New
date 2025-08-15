@@ -1,26 +1,6 @@
 #!/usr/bin/env bash
 # Developer helpers for Codespaces & Repo sync
-
-# Sync Codespaces from GitHub repo (⚠ deletes local changes)
-gsync() {
-  echo "[gsync] Hard resetting Codespaces to match remote main..."
-  git fetch origin main
-  git reset --hard origin/main
-  git clean -fd
-}
-
-# Rebase local changes on top of remote
-grebase() {
-  echo "[grebase] Rebasing local changes on top of remote main..."
-  git fetch origin main
-  git rebase origin/main
-}
-
-# Kill anything on port 3000
-free-port() {
-  echo "[free-port] Killing processes on port 3000..."
-  npx --yes kill-port 3000 >/dev/null 2>&1 || true
-}
+set -euo pipefail
 
 # Wait until API is healthy
 health() {
@@ -45,6 +25,12 @@ health() {
   return 1
 }
 
+# Kill anything on port 3000
+free-port() {
+  echo "[free-port] Killing processes on port 3000..."
+  npx --yes kill-port 3000 >/dev/null 2>&1 || true
+}
+
 # Restart app cleanly
 app-restart() {
   echo "[app-restart] Using Node 20..."
@@ -67,10 +53,30 @@ app-restart() {
   echo "[app-restart] Starting server with nodemon..."
   npx nodemon server.js &
 
-  # Wait for server to start
-  health || {
-    echo "[app-restart] ERROR - Server failed health check. Exiting."
+  # Wait for server to start and be healthy
+  if ! health; then
+    echo "[app-restart] ERROR - Server failed health check. Stopping nodemon."
     kill %1 2>/dev/null || true
     return 1
-  }
+  fi
+  echo "[app-restart] Server healthy ✅"
+}
+
+# Sync Codespaces from GitHub repo (⚠ deletes local changes) and restart server
+gsync() {
+  echo "[gsync] Hard resetting Codespaces to match remote main..."
+  git fetch origin main
+  git reset --hard origin/main
+  git clean -fd
+
+  echo "[gsync] Restarting app and waiting for health..."
+  app-restart || { echo "[gsync] ❌ Failed to restart app"; return 1; }
+  echo "[gsync] ✅ Synced and healthy"
+}
+
+# Rebase local changes on top of remote
+grebase() {
+  echo "[grebase] Rebasing local changes on top of remote main..."
+  git fetch origin main
+  git rebase origin/main
 }
