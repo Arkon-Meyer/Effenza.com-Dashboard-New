@@ -10,7 +10,7 @@
     "seed": "node scripts/seed-demo.js",
     "smoke:audit": "bash scripts/smoke-audit.sh",
     "audit:cleanup": "node scripts/cron-clean-audit.js",
-    "postinstall": "npm run migrate && npm run seed && bash scripts/smoke-audit.sh --quiet"
+    "postinstall": "npm run migrate && SEED_QUIET=1 npm run seed && bash scripts/smoke-audit.sh --quiet"
   },
   "keywords": [],
   "author": "",
