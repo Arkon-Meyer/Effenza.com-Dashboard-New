@@ -4,6 +4,11 @@ const path = require('path');
 
 const app = express();
 
+// Health endpoint (used by dev-helpers.sh)
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
 // DB (kept so routes can import it confidently)
 const db = require('./database');
 
@@ -13,7 +18,7 @@ const usersRouter       = require('./routes/users');
 const membershipsRouter = require('./routes/memberships');
 const orgUnitsRouter    = require('./routes/org-units');
 const assignmentsRouter = require('./routes/assignments');
-const auditRouter       = require('./routes/audit');   // ← NEW
+const auditRouter       = require('./routes/audit');
 
 // Middleware
 const actor = require('./middleware/actor'); // attaches req.actor if X-User-Id header is valid
@@ -25,16 +30,13 @@ app.use(actor());
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Simple health check
-app.get('/healthz', (_req, res) => res.json({ ok: true }));
-
 // API routes
 app.use('/groups',       groupRoutes);
 app.use('/users',        usersRouter);
 app.use('/memberships',  membershipsRouter);
 app.use('/org-units',    orgUnitsRouter);
 app.use('/assignments',  assignmentsRouter);
-app.use('/audit',        auditRouter);        // ← NEW
+app.use('/audit',        auditRouter);
 
 // Admin dashboard
 app.get('/admin', (_req, res) => {
