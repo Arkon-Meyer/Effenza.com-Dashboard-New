@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Developer helpers for Codespaces & Repo sync
-set -euo pipefail
 
 # Sync Codespaces from GitHub repo (⚠ deletes local changes)
 gsync() {
@@ -23,6 +22,29 @@ free-port() {
   npx --yes kill-port 3000 >/dev/null 2>&1 || true
 }
 
+# Wait until API is healthy
+health() {
+  local url="http://localhost:3000"
+  local retries=10
+  local delay=1
+
+  echo "[health] Checking API health at $url ..."
+  for i in $(seq 1 $retries); do
+    if curl -s -o /dev/null -w "%{http_code}" "$url/healthz" | grep -q '^200$'; then
+      echo "[health] OK - /healthz responded with 200"
+      return 0
+    elif curl -s -o /dev/null -w "%{http_code}" "$url" | grep -q '^200$'; then
+      echo "[health] OK - / responded with 200"
+      return 0
+    fi
+    echo "[health] Waiting... ($i/$retries)"
+    sleep $delay
+  done
+
+  echo "[health] ERROR - API not healthy after $retries attempts."
+  return 1
+}
+
 # Restart app cleanly
 app-restart() {
   echo "[app-restart] Using Node 20..."
@@ -43,14 +65,12 @@ app-restart() {
   npx --yes nodemon -v >/dev/null 2>&1 || npm i -D nodemon
 
   echo "[app-restart] Starting server with nodemon..."
-  npx nodemon server.js
-}
+  npx nodemon server.js &
 
-# Quick health check for API
-health() {
-  echo "[health] GET / and /healthz"
-  curl -s http://localhost:3000/ | sed -e 's/^/[root] /'
-  echo
-  curl -s http://localhost:3000/healthz 2>/dev/null | sed -e 's/^/[healthz] /' || echo "[healthz] (endpoint not present)"
-  echo
+  # Wait for server to start
+  health || {
+    echo "[app-restart] ERROR - Server failed health check. Exiting."
+    kill %1 2>/dev/null || true
+    return 1
+  }
 }
