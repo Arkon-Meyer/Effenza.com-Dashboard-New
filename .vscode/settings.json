@@ -1,15 +1,25 @@
 {
   "terminal.integrated.profiles.linux": {
-    "Bash (clean)": {
-      "path": "/bin/bash",
-      "args": ["--noprofile", "--norc"]
-    },
     "sh (clean)": {
       "path": "/bin/sh",
       "args": ["-i"]
+    },
+    "Bash (clean)": {
+      "path": "/bin/bash",
+      "args": ["--noprofile", "--norc", "-i"]
+    },
+    "Bash (init)": {
+      "path": "/bin/bash",
+      "args": [
+        "--noprofile",
+        "--norc",
+        "--init-file",
+        "${workspaceFolder}/.vscode/terminal-init.sh",
+        "-i"
+      ]
     }
   },
-  "terminal.integrated.defaultProfile.linux": "Bash (clean)",
+  "terminal.integrated.defaultProfile.linux": "sh (clean)",
   "terminal.integrated.inheritEnv": false,
   "terminal.integrated.shellIntegration.enabled": false
 }
