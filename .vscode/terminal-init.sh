@@ -3,7 +3,7 @@ case $- in *i*) ;; *) return ;; esac
 
 HELPERS="${PWD}/scripts/dev-helpers.sh"
 if [ -f "$HELPERS" ]; then
-  # shellcheck source=/dev/null
+  # shellcheck disable=SC1090
   . "$HELPERS" || true
-  echo "[init] dev helpers loaded → gsync, app-restart, free-port, health"
+  echo "[init] dev helpers loaded -> gsync, app-restart, free-port, health"
 fi
