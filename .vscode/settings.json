@@ -1,10 +1,15 @@
 {
-  "scripts": {
-    "start": "nodemon server.js",
-    "migrate": "node scripts/migrate.js",
-    "seed": "node scripts/seed-demo.js",
-    "smoke:audit": "bash scripts/smoke-audit.sh",
-    "audit:cleanup": "node scripts/cron-clean-audit.js",
-    "postinstall": "npm run migrate && SEED_QUIET=1 npm run seed && if [ \"$POSTINSTALL_SKIP_SMOKE\" != \"1\" ]; then bash scripts/smoke-audit.sh --quiet; fi"
-  }
+  "terminal.integrated.profiles.linux": {
+    "Bash (clean)": {
+      "path": "/bin/bash",
+      "args": ["--noprofile", "--norc"]
+    },
+    "sh (clean)": {
+      "path": "/bin/sh",
+      "args": ["-i"]
+    }
+  },
+  "terminal.integrated.defaultProfile.linux": "Bash (clean)",
+  "terminal.integrated.inheritEnv": false,
+  "terminal.integrated.shellIntegration.enabled": false
 }
