@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Developer helpers for Codespaces & Repo sync
-set -euo pipefail
+
+# Enable strict mode ONLY when this file is executed directly (not when sourced by .bashrc)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -euo pipefail
+fi
 
 # Wait until API is healthy (checks /healthz first, then /), retries w/ backoff
 health() {
