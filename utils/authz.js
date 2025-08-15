@@ -1,55 +1,96 @@
 // utils/authz.js
 const db = require('../database');
 
-// Walk up the org tree (team -> region -> BU …) and include null (tenant/global)
+// Walk up org tree (include NULL = tenant/global)
 function getAncestors(orgUnitId) {
   const chain = [];
   let id = orgUnitId || null;
   while (id) {
-    const row = db.prepare(
-      'SELECT id, parent_id FROM org_units WHERE id=? AND deleted_at IS NULL'
-    ).get(id);
+    const row = db.prepare('SELECT id, parent_id FROM org_units WHERE id=? AND deleted_at IS NULL').get(id);
     if (!row) break;
     chain.push(row.id);
     id = row.parent_id;
   }
-  chain.push(null); // tenant scope
+  chain.push(null);
   return chain; // e.g. [teamId, regionId, buId, null]
 }
 
-// Resolve all permission keys (e.g. "manage:org_units") the user has in scope
 function userPermissionKeys(userId, orgUnitId) {
   const scope = getAncestors(orgUnitId);
+  const ph = scope.map(() => '?').join(',');
   const rows = db.prepare(`
     SELECT p.action || ':' || p.resource AS k
     FROM assignments a
     JOIN role_permissions rp ON rp.role_id = a.role_id
-    JOIN permissions p ON p.id = rp.permission_id
+    JOIN permissions p      ON p.id = rp.permission_id
     WHERE a.user_id = ?
-      AND (a.org_unit_id IS NULL OR a.org_unit_id IN (${scope.map(()=>'?').join(',')}))
+      AND (a.org_unit_id IS NULL OR a.org_unit_id IN (${ph}))
   `).all(userId, ...scope);
   return new Set(rows.map(r => r.k));
 }
 
-// Short-circuit: tenant admin (org_unit_id NULL) or exact-scope admin is always allowed
-function isAdminInScope(userId, orgUnitId) {
-  const row = db.prepare(`
-    SELECT 1
-    FROM assignments a
-    JOIN roles r ON r.id = a.role_id
-    WHERE a.user_id = ?
-      AND r.key = 'admin'
-      AND (a.org_unit_id IS NULL OR a.org_unit_id = ?)
-    LIMIT 1
-  `).get(userId, orgUnitId || null);
-  return !!row;
-}
-
 function can(user, action, resource, { orgUnitId } = {}) {
   if (!user) return false;
-  if (isAdminInScope(user.id, orgUnitId)) return true;       // admin bypass
   const keys = userPermissionKeys(user.id, orgUnitId);
   return keys.has(`${action}:${resource}`);
 }
 
-module.exports = { can, getAncestors, userPermissionKeys, isAdminInScope };
+// --- minimal, idempotent bootstrap on require (safe to keep) ---
+db.exec(`
+  BEGIN;
+
+  CREATE TABLE IF NOT EXISTS roles(
+    id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS permissions(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    UNIQUE(action, resource)
+  );
+
+  CREATE TABLE IF NOT EXISTS role_permissions(
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS assignments(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    org_unit_id INTEGER REFERENCES org_units(id) ON DELETE CASCADE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_assign_user ON assignments(user_id);
+  CREATE INDEX IF NOT EXISTS idx_assign_org  ON assignments(org_unit_id);
+
+  INSERT OR IGNORE INTO roles(key,name) VALUES
+    ('admin','Admin'),
+    ('business_unit_admin','Business Unit Admin'),
+    ('region_manager','Region Manager'),
+    ('dist_manager','Distribution Manager'),
+    ('distributor','Distributor'),
+    ('reseller','Reseller'),
+    ('viewer','Viewer');
+
+  INSERT OR IGNORE INTO permissions(action,resource) VALUES
+    ('manage','org_units'),
+    ('read','org_units'),
+    ('read','assignments'),
+    ('create','assignments'),
+    ('delete','assignments'),
+    ('read','audit');
+
+  INSERT OR IGNORE INTO role_permissions(role_id, permission_id)
+  SELECT r.id, p.id
+  FROM roles r CROSS JOIN permissions p
+  WHERE r.key='admin';
+
+  COMMIT;
+`);
+
+module.exports = { can, getAncestors, userPermissionKeys };
