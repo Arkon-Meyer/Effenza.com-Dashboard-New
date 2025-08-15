@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Developer helpers for Codespaces & Repo sync
+set -euo pipefail
 
 # Sync Codespaces from GitHub repo (⚠ deletes local changes)
 gsync() {
@@ -43,4 +44,13 @@ app-restart() {
 
   echo "[app-restart] Starting server with nodemon..."
   npx nodemon server.js
+}
+
+# Quick health check for API
+health() {
+  echo "[health] GET / and /healthz"
+  curl -s http://localhost:3000/ | sed -e 's/^/[root] /'
+  echo
+  curl -s http://localhost:3000/healthz 2>/dev/null | sed -e 's/^/[healthz] /' || echo "[healthz] (endpoint not present)"
+  echo
 }
