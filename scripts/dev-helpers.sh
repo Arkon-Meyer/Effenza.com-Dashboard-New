@@ -30,8 +30,8 @@ app-restart() {
   echo "[app-restart] Removing node_modules & lockfile..."
   rm -rf node_modules package-lock.json
 
-  echo "[app-restart] Installing dependencies..."
-  npm install
+  echo "[app-restart] Installing dependencies (skip smoke)..."
+  POSTINSTALL_SKIP_SMOKE=1 npm install
 
   echo "[app-restart] Rebuilding better-sqlite3..."
   npm rebuild better-sqlite3 || true
