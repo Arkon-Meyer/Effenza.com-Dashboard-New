@@ -19,6 +19,3 @@ effenza.db
 # OS-specific files
 .DS_Store
 Thumbs.db
-
-# local tools installed by scripts
-.bin/
