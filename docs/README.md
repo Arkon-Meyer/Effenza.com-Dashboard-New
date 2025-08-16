@@ -44,6 +44,7 @@ Evidence, policies, and procedures will live under `docs/security/` and be versi
   - Full PII requires explicit reason and is auditable.
   - Scoping limits managers to their org tree.
 
+See [docs/DEV_QUICKSTART.md](docs/DEV_QUICKSTART.md) for setup and smoke tests.
 
 ## 🔄 Codespaces ↔ Repo Sync Workflow
 
