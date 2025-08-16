@@ -12,19 +12,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Minimal, but enable Checks API for actionlint review output
 permissions:
   contents: read
   pull-requests: read
+  checks: write
 
 jobs:
   actionlint:
     name: Lint GitHub Actions
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: actionlint
         uses: reviewdog/action-actionlint@v1
         with:
@@ -36,6 +40,7 @@ jobs:
     name: Node smoke audit
     needs: actionlint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,7 +51,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # Use your postinstall gate to skip the smoke during install
+      # Use postinstall gate to skip the smoke during install
       # Then run the smoke script explicitly so failures are visible in CI
       - name: Install deps (skip smoke during install)
         env:
