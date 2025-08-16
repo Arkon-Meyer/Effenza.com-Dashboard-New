@@ -1,0 +1,8 @@
+# Default owners
+* @Arkon-Meyer
+
+# Workflows
+.github/workflows/* @Arkon-Meyer
+
+# Security/compliance docs
+docs/** @Arkon-Meyer
