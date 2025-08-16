@@ -2,10 +2,27 @@
   "terminal.integrated.profiles.linux": {
     "Bash (init)": {
       "path": "/bin/bash",
-      "args": ["--noprofile", "--norc", "--init-file", "${workspaceFolder}/.vscode/terminal-init.sh", "-i"]
+      "args": [
+        "--noprofile",
+        "--norc",
+        "--init-file",
+        "${workspaceFolder}/.vscode/terminal-init.sh",
+        "-i"
+      ]
     }
   },
   "terminal.integrated.defaultProfile.linux": "Bash (init)",
   "terminal.integrated.inheritEnv": false,
-  "terminal.integrated.shellIntegration.enabled": false
+  "terminal.integrated.shellIntegration.enabled": false,
+  "terminal.integrated.environmentChangesIndicator": "off",
+  "terminal.integrated.scrollback": 5000,
+
+  // Editor hygiene to match .gitattributes and avoid noisy diffs
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  // Consistent dev UX
+  "editor.tabSize": 2,
+  "editor.detectIndentation": false
 }
