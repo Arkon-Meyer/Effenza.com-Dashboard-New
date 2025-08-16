@@ -1,25 +1,11 @@
 {
   "terminal.integrated.profiles.linux": {
-    "Bash (helpers)": {
+    "Bash (init)": {
       "path": "/bin/bash",
-      "args": [
-        "-lc",
-        "source '${workspaceFolder}/scripts/dev-helpers.sh' || true; echo '[helpers] loaded (gsync, app-restart, free-port, health)'; exec bash -i"
-      ],
-      "overrideName": true
-    },
-    "Bash (clean)": {
-      "path": "/bin/bash",
-      "args": ["--noprofile", "--norc"],
-      "overrideName": true
-    },
-    "sh (clean)": {
-      "path": "/bin/sh",
-      "args": ["-i"],
-      "overrideName": true
+      "args": ["--noprofile", "--norc", "--init-file", "${workspaceFolder}/.vscode/terminal-init.sh", "-i"]
     }
   },
-  "terminal.integrated.defaultProfile.linux": "Bash (helpers)",
+  "terminal.integrated.defaultProfile.linux": "Bash (init)",
   "terminal.integrated.inheritEnv": false,
   "terminal.integrated.shellIntegration.enabled": false
 }
