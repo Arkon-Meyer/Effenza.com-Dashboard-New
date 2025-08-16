@@ -134,6 +134,22 @@ try {
     CREATE INDEX IF NOT EXISTS idx_assignments_org  ON assignments(org_unit_id);
   `);
 
+  // Deduplicate legacy assignment rows BEFORE adding the unique constraint
+  exec(`
+    DELETE FROM assignments
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid)
+      FROM assignments
+      GROUP BY user_id, role_id, COALESCE(org_unit_id, 0)
+    )
+    AND (user_id, role_id, COALESCE(org_unit_id, 0)) IN (
+      SELECT user_id, role_id, COALESCE(org_unit_id, 0)
+      FROM assignments
+      GROUP BY user_id, role_id, COALESCE(org_unit_id, 0)
+      HAVING COUNT(*) > 1
+    );
+  `);
+
   // Prevent duplicate role grants to the same user at the same scope
   exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_assignment_user_role_scope
