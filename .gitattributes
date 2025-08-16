@@ -1,36 +1,16 @@
-# Default: normalize to LF on checkout/commit
+# Normalize line endings for all text files
 * text=auto eol=lf
 
-# Scripts
-*.sh   text eol=lf
-*.bash text eol=lf
-
-# Source & web assets
-*.js   text eol=lf
-*.mjs  text eol=lf
-*.cjs  text eol=lf
-*.ts   text eol=lf
-*.tsx  text eol=lf
-*.json text eol=lf
-*.css  text eol=lf
-*.html text eol=lf
-*.md   text eol=lf
-
-# SQLite files — treat as binary (no diffs/merges)
-*.db       binary -text -merge
-*.db-shm   binary -text -merge
-*.db-wal   binary -text -merge
-*.sqlite   binary -text -merge
-*.sqlite3  binary -text -merge
-
-# Images & other binaries
-*.png  binary -text -merge
-*.jpg  binary -text -merge
-*.jpeg binary -text -merge
-*.gif  binary -text -merge
-*.ico  binary -text -merge
-*.pdf  binary -text -merge
-
-# GitHub linguist hints (optional quality-of-life)
-package-lock.json linguist-generated=true
-docs/**             linguist-documentation
+# Mark binary files so Git won’t try to diff/merge them
+*.db      binary
+*.db-shm  binary
+*.db-wal  binary
+*.sqlite  binary
+*.sqlite3 binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.bin     binary
