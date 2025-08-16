@@ -1,132 +1,157 @@
 // scripts/migrate.js
 const db = require('../database');
 
-function hasTable(name) {
-  return !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
-}
 function hasColumn(table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   return cols.some(c => c.name === column);
 }
-function ensure(sql) { db.exec(sql); }
+function exec(sql) { db.exec(sql); }
 
-db.exec('BEGIN');
+// Ensure FK enforcement for this connection
+exec('PRAGMA foreign_keys = ON');
 
-ensure(`
-CREATE TABLE IF NOT EXISTS org_units (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  org_id INTEGER NOT NULL DEFAULT 1,
-  parent_id INTEGER REFERENCES org_units(id) ON DELETE SET NULL,
-  type TEXT CHECK(type IN ('business_unit','region','team','distributor','reseller')) NOT NULL,
-  name TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  deleted_at DATETIME
-);
-CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);
-`);
+try {
+  exec('BEGIN');
 
-ensure(`
-CREATE TABLE IF NOT EXISTS roles (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  key TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS permissions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  action TEXT NOT NULL,
-  resource TEXT NOT NULL,
-  UNIQUE(action, resource)
-);
-CREATE TABLE IF NOT EXISTS role_permissions (
-  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-  PRIMARY KEY (role_id, permission_id)
-);
-CREATE TABLE IF NOT EXISTS assignments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  org_unit_id INTEGER NULL REFERENCES org_units(id) ON DELETE CASCADE,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_assignments_user ON assignments(user_id);
-CREATE INDEX IF NOT EXISTS idx_assignments_org ON assignments(org_unit_id);
-`);
+  // --- Schema ----------------------------------------------------------------
 
-ensure(`
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  actor_user_id INTEGER REFERENCES users(id),
-  action TEXT NOT NULL,
-  resource TEXT NOT NULL,
-  resource_id INTEGER,
-  org_unit_id INTEGER,
-  ip TEXT, user_agent TEXT,
-  details TEXT
-);
-`);
+  exec(`
+  CREATE TABLE IF NOT EXISTS org_units (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_id INTEGER NOT NULL DEFAULT 1,
+    parent_id INTEGER REFERENCES org_units(id) ON DELETE SET NULL,
+    type TEXT CHECK(type IN ('business_unit','region','team','distributor','reseller')) NOT NULL,
+    name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
+  );
+  CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);
+  `);
 
-if (!hasColumn('users','org_id'))      ensure(`ALTER TABLE users ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1;`);
-if (!hasColumn('groups','org_id'))     ensure(`ALTER TABLE groups ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1;`);
-if (!hasColumn('memberships','org_id'))ensure(`ALTER TABLE memberships ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1;`);
+  exec(`
+  CREATE TABLE IF NOT EXISTS roles (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    key  TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL
+  );
 
-db.exec('COMMIT');
+  CREATE TABLE IF NOT EXISTS permissions (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    action   TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    UNIQUE(action, resource)
+  );
 
-// Seed minimal permissions/roles if empty
-const permCount = db.prepare('SELECT COUNT(*) as c FROM permissions').get().c;
-if (!permCount) {
-  const perms = [
-    // action, resource
+  CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id       INTEGER NOT NULL REFERENCES roles(id)        ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(id)  ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS assignments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id)     ON DELETE CASCADE,
+    role_id     INTEGER NOT NULL REFERENCES roles(id)     ON DELETE CASCADE,
+    org_unit_id INTEGER     REFERENCES org_units(id)      ON DELETE CASCADE,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_assignments_user ON assignments(user_id);
+  CREATE INDEX IF NOT EXISTS idx_assignments_org  ON assignments(org_unit_id);
+  `);
+
+  exec(`
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+    actor_user_id INTEGER REFERENCES users(id),
+    action        TEXT NOT NULL,
+    resource      TEXT NOT NULL,
+    resource_id   INTEGER,
+    org_unit_id   INTEGER,
+    ip            TEXT,
+    user_agent    TEXT,
+    details       TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_at            ON audit_logs(at);
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_org_unit      ON audit_logs(org_unit_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs(actor_user_id);
+  `);
+
+  // Backfills on existing tables (idempotent)
+  if (!hasColumn('users','org_id'))       exec(`ALTER TABLE users       ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1;`);
+  if (!hasColumn('groups','org_id'))      exec(`ALTER TABLE groups      ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1;`);
+  if (!hasColumn('memberships','org_id')) exec(`ALTER TABLE memberships ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1;`);
+
+  // --- Seed (idempotent) -----------------------------------------------------
+
+  const insPerm = db.prepare('INSERT OR IGNORE INTO permissions (action, resource) VALUES (?, ?)');
+  [
     ['manage','users'],
     ['manage','org_units'],
     ['write','pipeline'],
     ['approve','requests'],
-  ];
-  const insP = db.prepare('INSERT INTO permissions (action, resource) VALUES (?, ?)');
-  perms.forEach(p => insP.run(...p));
-}
+  ].forEach(p => insPerm.run(...p));
 
-const roleCount = db.prepare('SELECT COUNT(*) as c FROM roles').get().c;
-if (!roleCount) {
-  const roles = [
+  const insRole = db.prepare('INSERT OR IGNORE INTO roles (key, name) VALUES (?, ?)');
+  [
     ['admin','Admin'],
     ['business_unit_admin','Business Unit Admin'],
     ['region_admin','Region Admin'],
     ['dist_manager','Distribution Manager'],
     ['distributor','Distributor'],
     ['reseller','Reseller'],
-  ];
-  const insR = db.prepare('INSERT INTO roles (key, name) VALUES (?, ?)');
-  roles.forEach(r => insR.run(...r));
+  ].forEach(r => insRole.run(...r));
 
-  function roleId(key){ return db.prepare('SELECT id FROM roles WHERE key=?').get(key).id; }
-  function permId(a,r){ return db.prepare('SELECT id FROM permissions WHERE action=? AND resource=?').get(a,r).id; }
-  const insRP = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
+  const roleId = db.prepare('SELECT id FROM roles WHERE key=?');
+  const permId = db.prepare('SELECT id FROM permissions WHERE action=? AND resource=?');
+  const insRolePerm = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
 
-  // Admin: everything we defined
-  [['manage','users'],['manage','org_units'],['write','pipeline'],['approve','requests']]
-    .forEach(([a,r]) => insRP.run(roleId('admin'), permId(a,r)));
+  function link(roleKey, pairs) {
+    const rId = roleId.get(roleKey).id;
+    pairs.forEach(([a, r]) => insRolePerm.run(rId, permId.get(a, r).id));
+  }
+
+  // Admin: everything
+  link('admin', [
+    ['manage','users'],
+    ['manage','org_units'],
+    ['write','pipeline'],
+    ['approve','requests'],
+  ]);
 
   // Business unit admin
-  [['manage','users'],['manage','org_units'],['write','pipeline']].forEach(([a,r]) =>
-    insRP.run(roleId('business_unit_admin'), permId(a,r)));
+  link('business_unit_admin', [
+    ['manage','users'],
+    ['manage','org_units'],
+    ['write','pipeline'],
+  ]);
 
   // Region admin
-  [['manage','users'],['manage','org_units']].forEach(([a,r]) =>
-    insRP.run(roleId('region_admin'), permId(a,r)));
+  link('region_admin', [
+    ['manage','users'],
+    ['manage','org_units'],
+  ]);
 
   // Dist. manager
-  [['write','pipeline'],['approve','requests']].forEach(([a,r]) =>
-    insRP.run(roleId('dist_manager'), permId(a,r)));
+  link('dist_manager', [
+    ['write','pipeline'],
+    ['approve','requests'],
+  ]);
 
   // Distributor
-  [['write','pipeline']].forEach(([a,r]) =>
-    insRP.run(roleId('distributor'), permId(a,r)));
+  link('distributor', [
+    ['write','pipeline'],
+  ]);
 
-  // Reseller (write pipeline)
-  [['write','pipeline']].forEach(([a,r]) =>
-    insRP.run(roleId('reseller'), permId(a,r)));
+  // Reseller
+  link('reseller', [
+    ['write','pipeline'],
+  ]);
+
+  exec('COMMIT');
+  console.log('✅ Migration complete');
+} catch (err) {
+  try { exec('ROLLBACK'); } catch (_) {}
+  console.error('❌ Migration failed:', err && err.message ? err.message : err);
+  process.exit(1);
 }
-
-console.log('✅ Migration complete');
