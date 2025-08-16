@@ -4,41 +4,22 @@ const router = express.Router();
 const db = require('../database');
 const { can } = require('../utils/authz');
 
-// --- helpers ---
+/* -------------------------------- helpers -------------------------------- */
+
 const toSqlDateTime = (d) => {
   const dt = (d instanceof Date) ? d : new Date(d);
-  return dt.toISOString().slice(0, 19).replace('T', ' ');
+  return dt.toISOString().slice(0, 19).replace('T', ' '); // "YYYY-MM-DD HH:MM:SS"
 };
 const toInt = (v) => (v == null ? null : Number.parseInt(v, 10));
 const nonEmpty = (xs) => Array.isArray(xs) && xs.length > 0;
 
-const BUCKET_CAP = 30;
-const REFILL_EVERY_MS = 2000;
-const buckets = new Map();
-function rateLimit(req, res, next) {
-  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-  const now = Date.now();
-  const b = buckets.get(ip) || { tokens: BUCKET_CAP, last: now };
-  const elapsed = now - b.last;
-  const refill = Math.floor(elapsed / REFILL_EVERY_MS);
-  if (refill > 0) {
-    b.tokens = Math.min(BUCKET_CAP, b.tokens + refill);
-    b.last = now;
-  }
-  if (b.tokens <= 0) {
-    res.set('Retry-After', Math.ceil(REFILL_EVERY_MS / 1000));
-    return res.status(429).json({ error: 'Too many requests' });
-  }
-  b.tokens -= 1;
-  buckets.set(ip, b);
-  next();
+function parseBool(v) {
+  return v === true || v === 'true' || v === '1';
 }
-
-function parseBool(v) { return v === true || v === 'true' || v === '1'; }
 function parseDate(value, def) {
   if (!value) return def ?? null;
   const d = new Date(value);
-  return isNaN(d) ? def ?? null : d.toISOString().slice(0, 19).replace('T', ' ');
+  return isNaN(d) ? def ?? null : toSqlDateTime(d);
 }
 function maskIp(ip) {
   if (!ip) return null;
@@ -67,7 +48,33 @@ function descendantsOrSelf(id) {
   return [...out];
 }
 
-// ------------------------------- /audit -------------------------------
+/* ----------------------------- rate limiting ----------------------------- */
+
+const BUCKET_CAP = 30;
+const REFILL_EVERY_MS = 2000;
+const buckets = new Map();
+
+function rateLimit(req, res, next) {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const b = buckets.get(ip) || { tokens: BUCKET_CAP, last: now };
+  const elapsed = now - b.last;
+  const refill = Math.floor(elapsed / REFILL_EVERY_MS);
+  if (refill > 0) {
+    b.tokens = Math.min(BUCKET_CAP, b.tokens + refill);
+    b.last = now;
+  }
+  if (b.tokens <= 0) {
+    res.set('Retry-After', Math.ceil(REFILL_EVERY_MS / 1000));
+    return res.status(429).json({ error: 'Too many requests' });
+  }
+  b.tokens -= 1;
+  buckets.set(ip, b);
+  next();
+}
+
+/* --------------------------------- route --------------------------------- */
+
 router.get('/', rateLimit, (req, res) => {
   try {
     const user = req.actor;
@@ -84,15 +91,19 @@ router.get('/', rateLimit, (req, res) => {
 
     const now = new Date();
     const defFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const from = parseDate(req.query.from, defFrom);
-    const to   = parseDate(req.query.to,   now);
+
+    // Parse dates -> TEXT "YYYY-MM-DD HH:MM:SS"
+    let from = parseDate(req.query.from, toSqlDateTime(defFrom));
+    let to   = parseDate(req.query.to,   toSqlDateTime(now));
+    // Auto-correct flipped windows
+    if (from && to && from > to) { const t = from; from = to; to = t; }
 
     const scopeParam = (req.query.org_unit_id != null) ? toInt(req.query.org_unit_id) : null;
 
-    // Admin if they can read full audit at requested scope
+    // Determine admin + a reasonable org hint for RBAC checks
     const isAdmin = can(user, 'read', 'audit_full', { orgUnitId: scopeParam ?? null });
 
-    // Non-admins: snap to one of their org assignments (if any)
+    // For non-admins, find one org assignment as a default scope anchor
     let userAssignedOrg = null;
     if (!isAdmin) {
       const r = db.prepare(`
@@ -104,18 +115,19 @@ router.get('/', rateLimit, (req, res) => {
       userAssignedOrg = r?.org_unit_id ?? null;
     }
 
+    // Use explicit scope if provided; otherwise fall back to user’s assigned org
     const orgHint = scopeParam ?? userAssignedOrg ?? null;
 
     const canAggregateAny =
       isAdmin ||
-      can(user, 'read', 'audit',     { orgUnitId: orgHint }) ||
-      can(user, 'read', 'audit_agg', { orgUnitId: orgHint });
+      can(user, 'read', 'audit',      { orgUnitId: orgHint }) ||
+      can(user, 'read', 'audit_agg',  { orgUnitId: orgHint });
 
     if (mode !== 'detail' && !canAggregateAny) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    /* ---------------- detail mode (admin only) ---------------- */
+    /* ------------------------------- detail ------------------------------- */
     if (mode === 'detail') {
       if (!isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
@@ -123,7 +135,8 @@ router.get('/', rateLimit, (req, res) => {
       const where = [];
       const params = [];
 
-      where.push('created_at BETWEEN ? AND ?'); params.push(from, to);
+      // Coerce to datetime() on both sides to avoid TEXT comparison pitfalls
+      where.push('datetime(created_at) BETWEEN datetime(?) AND datetime(?)'); params.push(from, to);
       if (action)   { where.push('action = ?');   params.push(action); }
       if (resource) { where.push('resource = ?'); params.push(resource); }
       if (Array.isArray(scopeIds) && scopeIds.length > 0) {
@@ -160,6 +173,7 @@ router.get('/', rateLimit, (req, res) => {
       });
 
       if (wantPII) {
+        // Log the sensitive read itself
         db.prepare(`
           INSERT INTO audit_log (actor_id, action, resource, resource_id, org_unit_id, details, ip, user_agent)
           VALUES (?, 'read', 'audit_full', NULL, ?, json(?), ?, ?)
@@ -180,7 +194,8 @@ router.get('/', rateLimit, (req, res) => {
       });
     }
 
-    /* ---------------- aggregate mode ---------------- */
+    /* ------------------------------ aggregate ----------------------------- */
+
     let scopeIds = null;
     if (isAdmin) {
       scopeIds = (scopeParam != null) ? descendantsOrSelf(scopeParam) : null;
@@ -193,9 +208,12 @@ router.get('/', rateLimit, (req, res) => {
 
     const where = [];
     const params = [];
-    where.push('created_at BETWEEN ? AND ?'); params.push(from, to);
+
+    // Coerce to datetime() on both sides
+    where.push('datetime(created_at) BETWEEN datetime(?) AND datetime(?)'); params.push(from, to);
     if (action)   { where.push('action = ?');   params.push(action); }
     if (resource) { where.push('resource = ?'); params.push(resource); }
+
     if (Array.isArray(scopeIds) && scopeIds.length > 0) {
       const validIds = scopeIds.filter(id => id != null);
       if (validIds.length > 0) {
