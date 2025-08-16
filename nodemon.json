@@ -12,5 +12,6 @@
     "effenza.db-wal",
     "public/*",
     "logs/*"
-  ]
+  ],
+  "delay": "300ms"
 }
