@@ -22,3 +22,7 @@ Thumbs.db
 
 # Local binaries (e.g., actionlint)
 .bin/
+
+# Build / output artifacts
+dist/
+build/
