@@ -2,7 +2,13 @@
   "terminal.integrated.profiles.linux": {
     "Bash (init)": {
       "path": "/bin/bash",
-      "args": ["--noprofile", "--norc", "--init-file", "${workspaceFolder}/.vscode/terminal-init.sh"],
+      "args": [
+        "--noprofile",
+        "--norc",
+        "--init-file",
+        "${workspaceFolder}/.vscode/terminal-init.sh",
+        "-i"
+      ],
       "overrideName": true
     },
     "Bash (clean)": {
