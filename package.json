@@ -10,14 +10,27 @@
     "seed": "node scripts/seed-demo.js",
     "smoke:audit": "bash scripts/smoke-audit.sh",
     "audit:cleanup": "node scripts/cron-clean-audit.js",
-    "postinstall": "npm run migrate && SEED_QUIET=1 npm run seed && if [ \"$POSTINSTALL_SKIP_SMOKE\" != \"1\" ]; then bash scripts/smoke-audit.sh --quiet; fi"
+    "postinstall": "npm run migrate && SEED_QUIET=1 npm run seed && if [ \"$POSTINSTALL_SKIP_SMOKE\" != \"1\" ]; then bash scripts/smoke-audit.sh --quiet; fi",
     "ci:lint:install": "bash scripts/install-actionlint.sh",
     "ci:lint": "bash -lc '[ -x .bin/actionlint ] || bash scripts/install-actionlint.sh; .bin/actionlint -color || true'"
-}
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "effenza",
+    "dashboard",
+    "admin",
+    "express",
+    "sqlite"
+  ],
+  "author": "Effenza Engineering <dev@effenza.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/effenza/effenza-dashboard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/effenza/effenza-dashboard/issues"
+  },
+  "homepage": "https://github.com/effenza/effenza-dashboard#readme",
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "cors": "^2.8.5",
