@@ -2,7 +2,7 @@
 const db = require('../database');
 const QUIET = process.env.SEED_QUIET === '1' || process.argv.includes('--quiet');
 
-// --- tiny helpers ------------------------------------------------------------
+// ---------- tiny helpers ----------
 const run = (sql, ...args) => db.prepare(sql).run(...args);
 const get = (sql, ...args) => db.prepare(sql).get(...args);
 const all = (sql, ...args) => db.prepare(sql).all(...args);
@@ -25,61 +25,104 @@ function ensureAssignment(userId, roleId, orgUnitId /* may be null */) {
   );
 }
 
-function ensureRootBU(name = 'BU A') {
+// Ensure (or fetch) an org unit by org_id + parent_id + type + name
+function ensureOrgUnit({ orgId = 1, parentId = null, type, name }) {
   run(
     `INSERT OR IGNORE INTO org_units (org_id, parent_id, type, name)
-     VALUES (1, NULL, 'business_unit', ?)`,
-    name
+     VALUES (?, ?, ?, ?)`,
+    orgId, parentId, type, name
   );
-  return get(
+  // Lookup uses same uniqueness tuple
+  const row = get(
     `SELECT id, org_id, parent_id, type, name
        FROM org_units
-      WHERE parent_id IS NULL AND type='business_unit' AND name=?`,
-    name
+      WHERE org_id = ? AND type = ? AND name = ? AND
+            ( (? IS NULL AND parent_id IS NULL) OR parent_id = ? )`,
+    orgId, type, name, parentId, parentId
   );
+  return row;
 }
 
-// --- seed --------------------------------------------------------------------
+// Fetch role id (null-safe)
+const roleId = (key) => get('SELECT id FROM roles WHERE key=?', key)?.id ?? null;
+
+// ---------- seed ----------
 try {
-  // Enforce FKs and keep the seed atomic
   run('PRAGMA foreign_keys = ON');
   run('BEGIN');
 
-  // Users (idempotent)
-  const uAdmin  = ensureUser('Admin',  'admin@example.com');
-  ensureUser('Arkon',  'arkon@example.com');
-  ensureUser('Alice',  'alice@example.com');
-  ensureUser('BU Owner','bu@example.com');
+  // Core demo users
+  const uAdmin   = ensureUser('Admin', 'admin@example.com');
+  const uBU      = ensureUser('BU Admin', 'buadmin@example.com');
+  const uNorth   = ensureUser('Region North Admin', 'region.north@example.com');
+  const uSouth   = ensureUser('Region South Admin', 'region.south@example.com');
+  const uDistMgr = ensureUser('Dist Manager', 'dist.manager@example.com');
+  const uDist    = ensureUser('Distributor User', 'distributor.user@example.com');
+  const uRes     = ensureUser('Reseller User', 'reseller.user@example.com');
 
-  // Root business unit
-  const buA = ensureRootBU('BU A');
+  // Org tree
+  const buA         = ensureOrgUnit({ type: 'business_unit', name: 'BU A' });
+  const regionNorth = ensureOrgUnit({ parentId: buA.id, type: 'region', name: 'North' });
+  const regionSouth = ensureOrgUnit({ parentId: buA.id, type: 'region', name: 'South' });
+  const teamAlpha   = ensureOrgUnit({ parentId: regionNorth.id, type: 'team', name: 'Alpha' });
+  const teamBeta    = ensureOrgUnit({ parentId: regionSouth.id, type: 'team', name: 'Beta' });
 
-  // If RBAC tables exist, link Admin globally + to BU A
-  let adminRoleId = null;
+  // Distribution branch
+  const distD1      = ensureOrgUnit({ parentId: buA.id, type: 'distributor', name: 'Distributor D1' });
+  const resR1       = ensureOrgUnit({ parentId: distD1.id, type: 'reseller', name: 'Reseller R1' });
+
+  // RBAC is optional—migrations may or may not have created these yet.
+  // We'll try to ensure roles and wire assignments if available.
+  let rAdmin=null, rBUAdmin=null, rRegionAdmin=null, rDistMgr=null, rDist=null, rRes=null;
   try {
-    // ensure the role exists if the roles table is present
-    const r = ensureRole('admin', 'Admin'); // harmless if table missing -> will throw and be caught below
-    adminRoleId = r?.id ?? null;
+    rAdmin       = ensureRole('admin', 'Admin').id;
+    rBUAdmin     = ensureRole('business_unit_admin', 'Business Unit Admin').id;
+    rRegionAdmin = ensureRole('region_admin', 'Region Admin').id;
+    rDistMgr     = ensureRole('dist_manager', 'Distribution Manager').id;
+    rDist        = ensureRole('distributor', 'Distributor').id;
+    rRes         = ensureRole('reseller', 'Reseller').id;
   } catch (_) {
-    // roles table may not exist on very early schemas — ignore silently
+    // roles table might not exist yet — skip wiring and continue
   }
 
-  if (adminRoleId && uAdmin && buA) {
-    ensureAssignment(uAdmin.id, adminRoleId, null);   // global admin
-    ensureAssignment(uAdmin.id, adminRoleId, buA.id); // BU A scoped admin
+  // Assignments (only if roles table exists)
+  if (rAdmin) {
+    // Global + BU admin
+    ensureAssignment(uAdmin.id, rAdmin, null);
+    ensureAssignment(uAdmin.id, rAdmin, buA.id);
+  }
+  if (rBUAdmin) {
+    ensureAssignment(uBU.id, rBUAdmin, buA.id);
+  }
+  if (rRegionAdmin) {
+    ensureAssignment(uNorth.id, rRegionAdmin, regionNorth.id);
+    ensureAssignment(uSouth.id, rRegionAdmin, regionSouth.id);
+  }
+  if (rDistMgr) {
+    ensureAssignment(uDistMgr.id, rDistMgr, distD1.id);
+  }
+  if (rDist) {
+    ensureAssignment(uDist.id, rDist, distD1.id);
+  }
+  if (rRes) {
+    ensureAssignment(uRes.id, rRes, resR1.id);
   }
 
   run('COMMIT');
 
   if (!QUIET) {
-    const users = all('SELECT id, name, email FROM users ORDER BY id LIMIT 5');
-    const roots = all(`
-      SELECT id, type, name
-        FROM org_units
-       WHERE parent_id IS NULL AND deleted_at IS NULL
+    const users = all('SELECT id, name, email FROM users ORDER BY id LIMIT 10');
+    const tree  = all(`
+      WITH RECURSIVE r(id, parent_id, type, name, depth) AS (
+        SELECT id, parent_id, type, name, 0 FROM org_units WHERE parent_id IS NULL
+        UNION ALL
+        SELECT ou.id, ou.parent_id, ou.type, ou.name, r.depth+1
+          FROM org_units ou JOIN r ON ou.parent_id = r.id
+      )
+      SELECT id, parent_id, type, name, depth FROM r ORDER BY depth, type, name
     `);
     console.log('[seed] users:', users);
-    console.log('[seed] root org units:', roots);
+    console.log('[seed] org tree:', tree);
     console.log('[seed] done (idempotent).');
   }
 } catch (err) {
