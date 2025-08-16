@@ -1,18 +1,20 @@
 // server.js
 const express = require('express');
 const path = require('path');
+const helmet = require('helmet');
+const cors = require('cors');
+const morgan = require('morgan');
 
 const app = express();
 
-// Health endpoint (used by dev-helpers.sh)
-app.get('/healthz', (_req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
-});
+// --- Health endpoints (kept early so helpers can ping even if other code fails) ---
+app.get('/healthz', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+app.get('/readyz',  (_req, res) => res.json({ status: 'ready', timestamp: new Date().toISOString() }));
 
-// DB (kept so routes can import it confidently)
+// --- DB (kept so routes can import it confidently) ---
 const db = require('./database');
 
-// Routers
+// --- Routers ---
 const groupRoutes       = require('./routes/groups');
 const usersRouter       = require('./routes/users');
 const membershipsRouter = require('./routes/memberships');
@@ -20,17 +22,22 @@ const orgUnitsRouter    = require('./routes/org-units');
 const assignmentsRouter = require('./routes/assignments');
 const auditRouter       = require('./routes/audit');
 
-// Middleware
+// --- Middleware ---
 const actor = require('./middleware/actor'); // attaches req.actor if X-User-Id header is valid
 
-// Body parsing & auth context
+// --- Security / logging ---
+app.use(helmet());
+app.use(cors({ origin: '*' })); // TODO: restrict in prod
+app.use(morgan('dev'));
+
+// --- Body parsing & auth context ---
 app.use(express.json());
 app.use(actor());
 
-// Static files
+// --- Static files ---
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API routes
+// --- API routes ---
 app.use('/groups',       groupRoutes);
 app.use('/users',        usersRouter);
 app.use('/memberships',  membershipsRouter);
@@ -38,17 +45,27 @@ app.use('/org-units',    orgUnitsRouter);
 app.use('/assignments',  assignmentsRouter);
 app.use('/audit',        auditRouter);
 
-// Admin dashboard
+// --- Admin dashboard ---
 app.get('/admin', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Root
+// --- Root (simple welcome) ---
 app.get('/', (_req, res) => {
   res.send('Effenza Dashboard is up and running!');
 });
 
-// Start server
+// --- JSON 404 + 500 handlers ---
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not Found' });
+});
+
+app.use((err, req, res, _next) => {
+  console.error('[ERROR]', err);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
+
+// --- Start server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server is listening on port ${PORT}`);
