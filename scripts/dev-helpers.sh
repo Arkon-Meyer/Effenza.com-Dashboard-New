@@ -1,71 +1,64 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-# Poll the API until it's healthy (tries /healthz, then /)
-health() {
-  local url="http://localhost:3000"
-  local tries=12
-  echo "[health] Checking $url ..."
+health() (
+  set -euo pipefail
+  local url="http://localhost:3000" tries=12
+  echo "[health] Checking API health at $url ..."
   for i in $(seq 1 "$tries"); do
     if curl -s -o /dev/null -w "%{http_code}" "$url/healthz" | grep -q '^200$'; then
-      echo "[health] OK (/healthz)"
-      return 0
-    elif curl -s -o /dev/null -w "%{http_code}" "$url" | grep -q '^200$'; then
-      echo "[health] OK (/)"
-      return 0
+      echo "[health] OK - /healthz responded with 200"; exit 0
     fi
-    echo "[health] waiting... ($i/$tries)"
-    sleep 1
+    echo "[health] Waiting... ($i/$tries)"; sleep 1
   done
-  echo "[health] ERROR – service did not become healthy"
-  return 1
-}
+  echo "[health] ERROR - not healthy"; exit 1
+)
 
-# Free the app port (harmless if nothing is listening)
-free-port() {
-  echo "[free-port] Killing processes on :3000 (if any)..."
+free_port() (
+  set -euo pipefail
+  echo "[free-port] Killing processes on port 3000..."
   npx --yes kill-port 3000 >/dev/null 2>&1 || true
-}
+)
 
-# Clean restart with background nodemon & health check
-app-restart() {
-  echo "[app-restart] Using Node 20 (if available)..."
+app_restart() (
+  set -euo pipefail
+  echo "[app-restart] Using Node 20..."
   command -v nvm >/dev/null 2>&1 && nvm use 20 >/dev/null || true
 
   echo "[app-restart] Removing node_modules & lockfile..."
   rm -rf node_modules package-lock.json
 
-  echo "[app-restart] Installing deps (skip smoke)..."
+  echo "[app-restart] Installing dependencies (skip smoke)..."
   POSTINSTALL_SKIP_SMOKE=1 npm install
 
-  echo "[app-restart] Rebuilding better-sqlite3 (if needed)..."
-  npm rebuild better-sqlite3 >/dev/null 2>&1 || true
+  echo "[app-restart] Rebuilding better-sqlite3..."
+  npm rebuild better-sqlite3 || true
 
-  free-port
+  free_port
 
   echo "[app-restart] Ensuring nodemon is installed..."
   npx --yes nodemon -v >/dev/null 2>&1 || npm i -D nodemon
 
-  echo "[app-restart] Stopping any existing nodemon..."
-  pkill -f "nodemon server.js" >/dev/null 2>&1 || true
-
-  echo "[app-restart] Starting nodemon in background..."
+  echo "[app-restart] Starting server with nodemon..."
   npx nodemon server.js > /tmp/nodemon.log 2>&1 &
 
   if ! health; then
-    echo "[app-restart] ❌ Health check failed. Last 80 lines of nodemon log:"
+    echo "[app-restart] ERROR - Health failed. Last 80 lines:"
     tail -n 80 /tmp/nodemon.log || true
-    return 1
+    exit 1
   fi
-  echo "[app-restart] ✅ Server healthy"
-}
+  echo "[app-restart] Server healthy ✅"
+)
 
-# Sync Codespaces to origin/main (⚠️ discards local changes) and restart
-gsync() {
-  echo "[gsync] Hard reset to origin/main..."
+gsync() (
+  set -euo pipefail
+  echo "[gsync] Hard resetting Codespaces to match remote main..."
   git fetch origin main
   git reset --hard origin/main
   git clean -fd
-  echo "[gsync] Restarting app..."
-  app-restart
-}
+  echo "[gsync] Restarting app and waiting for health..."
+  app_restart && echo "[gsync] ✅ Synced and healthy"
+)
+
+# Handy aliases
+alias free-port='free_port'
+alias app-restart='app_restart'
