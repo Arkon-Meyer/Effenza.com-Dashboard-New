@@ -1,14 +1,15 @@
 // scripts/migrate.js
+/* eslint-disable no-console */
 const db = require('../database');
 
-// helpers
+// ---- helpers ---------------------------------------------------------------
 const exec = (sql) => db.exec(sql);
 const tableExists = (name) =>
   !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
 const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all();
 const columnExists = (table, col) => columnsOf(table).some((c) => c.name === col);
 
-// enforce FKs for this connection (database.js turns it on too)
+// Enforce FKs for this connection (database.js also sets PRAGMA globally)
 exec('PRAGMA foreign_keys = ON');
 
 try {
@@ -31,11 +32,13 @@ try {
       );
     `);
   }
-  // minimal guards for older shapes
+
+  // Backfill created_at if older shapes are present
   if (!columnExists('audit_log', 'created_at')) {
     exec(`ALTER TABLE audit_log ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
   }
-  // indexes used by /audit queries
+
+  // Indexes used by /audit queries (idempotent)
   exec(`
     CREATE INDEX IF NOT EXISTS idx_audit_created      ON audit_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_resource     ON audit_log(resource);
@@ -44,7 +47,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_audit_res_and_id   ON audit_log(resource, resource_id);
   `);
 
-  // one-time forward copy from legacy plural table if it exists
+  // One-time forward copy from legacy plural table if it exists
   if (tableExists('audit_logs')) {
     const hasAt          = columnExists('audit_logs', 'at');
     const hasActorUserId = columnExists('audit_logs', 'actor_user_id');
@@ -60,7 +63,7 @@ try {
       SELECT ${actorCol}, action, resource, resource_id, org_unit_id, details, ip, user_agent, ${createdCol}
       FROM audit_logs
     `);
-    // intentionally keep legacy table for now (no DROP)
+    // Keep legacy table for now (no DROP) to stay safe.
   }
 
   /* ------------------------------- org_units -------------------------------- */
@@ -77,10 +80,26 @@ try {
     CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);
   `);
 
-  // uniqueness guard to make seeding idempotent
+  // Deduplicate legacy rows so the unique index can be created safely
+  exec(`
+    DELETE FROM org_units
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid)
+      FROM org_units
+      GROUP BY org_id, COALESCE(parent_id,0), type, name
+    )
+    AND (org_id, COALESCE(parent_id,0), type, name) IN (
+      SELECT org_id, COALESCE(parent_id,0), type, name
+      FROM org_units
+      GROUP BY org_id, COALESCE(parent_id,0), type, name
+      HAVING COUNT(*) > 1
+    );
+  `);
+
+  // Uniqueness guard to make seeding idempotent
   exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_orgunit_org_parent_type_name
-      ON org_units(org_id, COALESCE(parent_id, 0), type, name);
+      ON org_units (org_id, COALESCE(parent_id, 0), type, name);
   `);
 
   /* --------------------------------- RBAC ---------------------------------- */
@@ -115,7 +134,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_assignments_org  ON assignments(org_unit_id);
   `);
 
-  // prevent duplicate role grants to the same user at same scope
+  // Prevent duplicate role grants to the same user at the same scope
   exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_assignment_user_role_scope
       ON assignments(user_id, role_id, COALESCE(org_unit_id, 0));
@@ -155,9 +174,9 @@ try {
     ['reseller','Reseller'],
   ].forEach(r => insRole.run(...r));
 
-  const qRoleId   = db.prepare('SELECT id FROM roles WHERE key=?');
-  const qPermId   = db.prepare('SELECT id FROM permissions WHERE action=? AND resource=?');
-  const insRP     = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
+  const qRoleId = db.prepare('SELECT id FROM roles WHERE key=?');
+  const qPermId = db.prepare('SELECT id FROM permissions WHERE action=? AND resource=?');
+  const insRP   = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
 
   const link = (roleKey, pairs) => {
     const r = qRoleId.get(roleKey);
