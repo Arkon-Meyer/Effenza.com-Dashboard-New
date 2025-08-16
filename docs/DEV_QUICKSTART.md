@@ -1,7 +1,8 @@
-# Dev Quickstart
+# Dev Quickstart (Repo-first)
 
-## Repo-first workflow
-1. Open this repo on GitHub and make your edits (preferred).
-2. In Codespaces, sync + restart:
+## Workflow
+1. Edit files **in GitHub repo** (source of truth).
+2. In Codespaces:
    ```bash
-   gsync
+   gsync           # pulls repo, clean-reinstalls, restarts, waits for /healthz
+   npm run ci:lint # optional: lint GitHub workflows locally
