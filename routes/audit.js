@@ -1,132 +1,228 @@
-// routes/assignments.js
+// routes/audit.js
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { can } = require('../utils/authz');
-const { audit } = require('../utils/audit');
 
-// helpers
-const toInt = (v) => {
-  const n = Number(v);
-  return Number.isInteger(n) ? n : NaN;
+// --- helpers ---
+const toSqlDateTime = (d) => {
+  const dt = (d instanceof Date) ? d : new Date(d);
+  return dt.toISOString().slice(0, 19).replace('T', ' ');
 };
-const pickLimit = (v, dflt = 50, max = 200) => {
-  const n = toInt(v);
-  if (Number.isNaN(n)) return dflt;
-  return Math.min(Math.max(n, 1), max);
-};
+const toInt = (v) => (v == null ? null : Number.parseInt(v, 10));
+const nonEmpty = (xs) => Array.isArray(xs) && xs.length > 0;
 
-// GET /assignments/user/:id?limit=&offset=
-router.get('/user/:id', (req, res) => {
-  if (!can(req.actor, 'read', 'assignments')) {
-    return res.status(403).json({ error: 'Forbidden' });
+const BUCKET_CAP = 30;
+const REFILL_EVERY_MS = 2000;
+const buckets = new Map();
+function rateLimit(req, res, next) {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const b = buckets.get(ip) || { tokens: BUCKET_CAP, last: now };
+  const elapsed = now - b.last;
+  const refill = Math.floor(elapsed / REFILL_EVERY_MS);
+  if (refill > 0) {
+    b.tokens = Math.min(BUCKET_CAP, b.tokens + refill);
+    b.last = now;
   }
-
-  const userId = toInt(req.params.id);
-  if (Number.isNaN(userId)) return res.status(400).json({ error: 'Invalid user id' });
-
-  const limit = pickLimit(req.query.limit);
-  const offset = Math.max(toInt(req.query.offset) || 0, 0);
-
-  const rows = db.prepare(
-    `
-    SELECT a.id, a.user_id, a.role_id, a.org_unit_id,
-           r.key  AS role_key, r.name AS role_name,
-           ou.type AS org_type, ou.name AS org_name
-      FROM assignments a
-      JOIN roles r        ON r.id  = a.role_id
- LEFT JOIN org_units ou   ON ou.id = a.org_unit_id
-     WHERE a.user_id = ?
-     ORDER BY a.id
-     LIMIT ? OFFSET ?
-    `
-  ).all(userId, limit, offset);
-
-  res.json({ items: rows, limit, offset });
-});
-
-// POST /assignments  { user_id, role_key, org_unit_id? }
-router.post('/', (req, res) => {
-  if (!can(req.actor, 'create', 'assignments')) {
-    return res.status(403).json({ error: 'Forbidden' });
+  if (b.tokens <= 0) {
+    res.set('Retry-After', Math.ceil(REFILL_EVERY_MS / 1000));
+    return res.status(429).json({ error: 'Too many requests' });
   }
+  b.tokens -= 1;
+  buckets.set(ip, b);
+  next();
+}
 
+function parseBool(v) { return v === true || v === 'true' || v === '1'; }
+function parseDate(value, def) {
+  if (!value) return def ?? null;
+  const d = new Date(value);
+  return isNaN(d) ? def ?? null : d.toISOString().slice(0, 19).replace('T', ' ');
+}
+function maskIp(ip) {
+  if (!ip) return null;
+  if (ip.includes(':')) return ip.split(':').slice(0, 4).join(':') + '::/64';
+  const parts = ip.split('.');
+  if (parts.length !== 4) return ip;
+  return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+}
+function maskUA(ua) {
+  if (!ua) return null;
+  const first = ua.split(' ')[0];
+  return first.length > 40 ? first.slice(0, 40) : first;
+}
+function descendantsOrSelf(id) {
+  if (id == null) return [null];
+  const root = Number(id);
+  const out = new Set([root]);
+  const q = db.prepare('SELECT id FROM org_units WHERE parent_id = ? AND deleted_at IS NULL');
+  const stack = [root];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const row of q.all(cur)) {
+      if (!out.has(row.id)) { out.add(row.id); stack.push(row.id); }
+    }
+  }
+  return [...out];
+}
+
+// ------------------------------- /audit -------------------------------
+router.get('/', rateLimit, (req, res) => {
   try {
-    const user_id = toInt(req.body?.user_id);
-    const role_key = String(req.body?.role_key || '').trim();
-    const org_unit_id_raw = req.body?.org_unit_id ?? null;
-    const org_unit_id = org_unit_id_raw === null || org_unit_id_raw === undefined
-      ? null
-      : toInt(org_unit_id_raw);
+    const user = req.actor;
+    if (!user) return res.status(401).json({ error: 'Missing or invalid X-User-Id' });
 
-    if (Number.isNaN(user_id) || !role_key) {
-      return res.status(400).json({ error: 'user_id and role_key required' });
+    const mode = (req.query.mode || 'aggregate').toString();
+    const wantPII = parseBool(req.query.pii);
+    const reason = (req.query.reason || '').toString().slice(0, 200);
+
+    const action   = req.query.action ? String(req.query.action) : null;
+    const resource = req.query.resource ? String(req.query.resource) : null;
+    const limit    = Math.min(Number(req.query.limit ?? 50) || 50, 500);
+    const offset   = Math.max(Number(req.query.offset ?? 0) || 0, 0);
+
+    const now = new Date();
+    const defFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const from = parseDate(req.query.from, defFrom);
+    const to   = parseDate(req.query.to,   now);
+
+    const scopeParam = (req.query.org_unit_id != null) ? toInt(req.query.org_unit_id) : null;
+
+    // Admin if they can read full audit at requested scope
+    const isAdmin = can(user, 'read', 'audit_full', { orgUnitId: scopeParam ?? null });
+
+    // Non-admins: snap to one of their org assignments (if any)
+    let userAssignedOrg = null;
+    if (!isAdmin) {
+      const r = db.prepare(`
+        SELECT org_unit_id
+        FROM assignments
+        WHERE user_id = ? AND org_unit_id IS NOT NULL
+        ORDER BY id DESC LIMIT 1
+      `).get(user.id);
+      userAssignedOrg = r?.org_unit_id ?? null;
     }
-    if (org_unit_id_raw != null && Number.isNaN(org_unit_id)) {
-      return res.status(400).json({ error: 'Invalid org_unit_id' });
+
+    const orgHint = scopeParam ?? userAssignedOrg ?? null;
+
+    const canAggregateAny =
+      isAdmin ||
+      can(user, 'read', 'audit',     { orgUnitId: orgHint }) ||
+      can(user, 'read', 'audit_agg', { orgUnitId: orgHint });
+
+    if (mode !== 'detail' && !canAggregateAny) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const role = db.prepare('SELECT id FROM roles WHERE key=?').get(role_key);
-    if (!role) return res.status(400).json({ error: 'invalid role_key' });
+    /* ---------------- detail mode (admin only) ---------------- */
+    if (mode === 'detail') {
+      if (!isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
-    if (org_unit_id != null) {
-      const ou = db.prepare('SELECT id FROM org_units WHERE id=?').get(org_unit_id);
-      if (!ou) return res.status(400).json({ error: 'invalid org_unit_id' });
+      const scopeIds = scopeParam != null ? descendantsOrSelf(scopeParam) : null;
+      const where = [];
+      const params = [];
+
+      where.push('created_at BETWEEN ? AND ?'); params.push(from, to);
+      if (action)   { where.push('action = ?');   params.push(action); }
+      if (resource) { where.push('resource = ?'); params.push(resource); }
+      if (Array.isArray(scopeIds) && scopeIds.length > 0) {
+        where.push(`org_unit_id IN (${scopeIds.map(()=>'?').join(',')})`);
+        params.push(...scopeIds);
+      }
+
+      const sql = `
+        SELECT id, actor_id, action, resource, resource_id, org_unit_id,
+               details, ip, user_agent, created_at
+        FROM audit_log
+        WHERE ${where.length ? where.join(' AND ') : '1=1'}
+        ORDER BY id DESC
+        LIMIT ? OFFSET ?
+      `;
+      params.push(limit, offset);
+
+      const rows = db.prepare(sql).all(...params);
+
+      const items = rows.map(r => {
+        if (!wantPII) {
+          return {
+            id: r.id, action: r.action, resource: r.resource,
+            resource_id: r.resource_id, org_unit_id: r.org_unit_id,
+            created_at: r.created_at,
+          };
+        }
+        return {
+          id: r.id, actor_id: r.actor_id, action: r.action, resource: r.resource,
+          resource_id: r.resource_id, org_unit_id: r.org_unit_id,
+          details: r.details, ip: maskIp(r.ip), user_agent: maskUA(r.user_agent),
+          created_at: r.created_at,
+        };
+      });
+
+      if (wantPII) {
+        db.prepare(`
+          INSERT INTO audit_log (actor_id, action, resource, resource_id, org_unit_id, details, ip, user_agent)
+          VALUES (?, 'read', 'audit_full', NULL, ?, json(?), ?, ?)
+        `).run(
+          user.id,
+          scopeParam ?? null,
+          JSON.stringify({ reason: reason || 'audit detail view' }),
+          (req.ip || '').toString(),
+          (req.headers['user-agent'] || '').toString()
+        );
+      }
+
+      return res.json({
+        scope_org_unit_id: scopeParam ?? null,
+        limit, offset, pii: wantPII,
+        from, to,
+        items
+      });
     }
 
-    const info = db
-      .prepare(
-        `INSERT INTO assignments (user_id, role_id, org_unit_id)
-         VALUES (?, ?, ?)`
-      )
-      .run(user_id, role.id, org_unit_id);
+    /* ---------------- aggregate mode ---------------- */
+    let scopeIds = null;
+    if (isAdmin) {
+      scopeIds = (scopeParam != null) ? descendantsOrSelf(scopeParam) : null;
+    } else {
+      scopeIds = userAssignedOrg ? descendantsOrSelf(userAssignedOrg) : [];
+      if (!nonEmpty(scopeIds)) {
+        return res.json({ scope_org_unit_id: null, window: 'last_7_days', from, to, totals: [] });
+      }
+    }
 
-    const row = db.prepare('SELECT * FROM assignments WHERE id=?').get(info.lastInsertRowid);
+    const where = [];
+    const params = [];
+    where.push('created_at BETWEEN ? AND ?'); params.push(from, to);
+    if (action)   { where.push('action = ?');   params.push(action); }
+    if (resource) { where.push('resource = ?'); params.push(resource); }
+    if (Array.isArray(scopeIds) && scopeIds.length > 0) {
+      const validIds = scopeIds.filter(id => id != null);
+      if (validIds.length > 0) {
+        where.push(`(org_unit_id IN (${validIds.map(()=>'?').join(',')}))`);
+        params.push(...validIds);
+      }
+    }
 
-    audit(req, {
-      action: 'create',
-      resource: 'assignments',
-      resource_id: info.lastInsertRowid,
-      org_unit_id: org_unit_id ?? null,
-      details: { user_id, role_key },
+    const sqlAgg = `
+      SELECT action, COUNT(*) AS count
+      FROM audit_log
+      WHERE ${where.length ? where.join(' AND ') : '1=1'}
+      GROUP BY action
+      ORDER BY action
+    `;
+    const rows = db.prepare(sqlAgg).all(...params);
+
+    return res.json({
+      scope_org_unit_id: isAdmin ? (scopeParam ?? null) : (scopeIds?.[0] ?? null),
+      window: 'last_7_days',
+      from, to,
+      filters: { action: action || null, resource: resource || null },
+      totals: rows
     });
-
-    res
-      .status(201)
-      .set('Location', `/assignments/${info.lastInsertRowid}`)
-      .json(row);
   } catch (err) {
-    console.error('[assignments:create] error:', err?.message || err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
-
-// DELETE /assignments/:id
-router.delete('/:id', (req, res) => {
-  if (!can(req.actor, 'delete', 'assignments')) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-
-  try {
-    const id = toInt(req.params.id);
-    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-
-    const row = db.prepare('SELECT * FROM assignments WHERE id=?').get(id);
-    if (!row) return res.status(404).json({ error: 'Not found' });
-
-    db.prepare('DELETE FROM assignments WHERE id=?').run(id);
-
-    audit(req, {
-      action: 'delete',
-      resource: 'assignments',
-      resource_id: id,
-      org_unit_id: row.org_unit_id ?? null,
-    });
-
-    res.status(204).end();
-  } catch (err) {
-    console.error('[assignments:delete] error:', err?.message || err);
-    res.status(500).json({ error: 'Internal error' });
+    console.error('[audit] error:', err);
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
