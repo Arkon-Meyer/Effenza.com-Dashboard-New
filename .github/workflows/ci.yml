@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 # Avoid duplicate runs on the same ref
@@ -12,7 +12,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Minimal, but enable Checks API for actionlint review output
+# Enable Checks API so actionlint can report nicely
 permissions:
   contents: read
   pull-requests: read
@@ -51,13 +51,15 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # Use postinstall gate to skip the smoke during install
-      # Then run the smoke script explicitly so failures are visible in CI
+      # Skip smoke during install; run it explicitly next
       - name: Install deps (skip smoke during install)
         env:
           CI: 'true'
           POSTINSTALL_SKIP_SMOKE: '1'
         run: npm ci
 
-      - name: Run smoke audit
-        run: bash scripts/smoke-audit.sh --quiet
+      - name: Run smoke audit (aggregate)
+        run: npm run smoke:audit --quiet
+
+      - name: Run smoke audit (detail)
+        run: npm run smoke:audit:detail --quiet
