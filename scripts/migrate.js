@@ -1,20 +1,20 @@
 // scripts/migrate.js
 const db = require('../database');
 
-// --- helpers ---------------------------------------------------------------
+// helpers
 const exec = (sql) => db.exec(sql);
 const tableExists = (name) =>
   !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
-const columnExists = (table, column) =>
-  db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all();
+const columnExists = (table, col) => columnsOf(table).some((c) => c.name === col);
 
-// Enforce FKs for this connection (database.js already sets pragma globally)
+// enforce FKs for this connection (database.js turns it on too)
 exec('PRAGMA foreign_keys = ON');
 
 try {
   exec('BEGIN');
 
-  // --- audit_log (singular) ------------------------------------------------
+  /* -------------------------- audit_log (singular) -------------------------- */
   if (!tableExists('audit_log')) {
     exec(`
       CREATE TABLE IF NOT EXISTS audit_log (
@@ -24,40 +24,46 @@ try {
         resource     TEXT NOT NULL,
         resource_id  INTEGER,
         org_unit_id  INTEGER,
-        details      TEXT,
+        details      TEXT,              -- JSON string
         ip           TEXT,
         user_agent   TEXT,
         created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
   }
-  // Ensure indexes (idempotent)
-  exec(`
-    CREATE INDEX IF NOT EXISTS idx_audit_created  ON audit_log(created_at);
-    CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log(resource);
-    CREATE INDEX IF NOT EXISTS idx_audit_org      ON audit_log(org_unit_id);
-  `);
-  // Ensure created_at column exists (older shapes might miss it)
+  // minimal guards for older shapes
   if (!columnExists('audit_log', 'created_at')) {
     exec(`ALTER TABLE audit_log ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
   }
+  // indexes used by /audit queries
+  exec(`
+    CREATE INDEX IF NOT EXISTS idx_audit_created      ON audit_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_resource     ON audit_log(resource);
+    CREATE INDEX IF NOT EXISTS idx_audit_org          ON audit_log(org_unit_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_actor        ON audit_log(actor_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_res_and_id   ON audit_log(resource, resource_id);
+  `);
 
-  // Migrate legacy audit_logs -> audit_log (if legacy table exists)
+  // one-time forward copy from legacy plural table if it exists
   if (tableExists('audit_logs')) {
-    const hasAt = columnExists('audit_logs', 'at');
+    const hasAt          = columnExists('audit_logs', 'at');
     const hasActorUserId = columnExists('audit_logs', 'actor_user_id');
-    const createdCol = hasAt ? 'at' : (columnExists('audit_logs', 'created_at') ? 'created_at' : "datetime('now')");
-    const actorCol = hasActorUserId ? 'actor_user_id' : (columnExists('audit_logs', 'actor_id') ? 'actor_id' : 'NULL');
+    const createdCol = hasAt
+      ? 'at'
+      : (columnExists('audit_logs', 'created_at') ? 'created_at' : "datetime('now')");
+    const actorCol = hasActorUserId
+      ? 'actor_user_id'
+      : (columnExists('audit_logs', 'actor_id') ? 'actor_id' : 'NULL');
 
     exec(`
       INSERT INTO audit_log (actor_id, action, resource, resource_id, org_unit_id, details, ip, user_agent, created_at)
       SELECT ${actorCol}, action, resource, resource_id, org_unit_id, details, ip, user_agent, ${createdCol}
       FROM audit_logs
     `);
-    // Note: we do NOT drop legacy table automatically; safe to keep for now.
+    // intentionally keep legacy table for now (no DROP)
   }
 
-  // --- org_units -----------------------------------------------------------
+  /* ------------------------------- org_units -------------------------------- */
   exec(`
     CREATE TABLE IF NOT EXISTS org_units (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +77,13 @@ try {
     CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);
   `);
 
-  // --- RBAC core -----------------------------------------------------------
+  // uniqueness guard to make seeding idempotent
+  exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_orgunit_org_parent_type_name
+      ON org_units(org_id, COALESCE(parent_id, 0), type, name);
+  `);
+
+  /* --------------------------------- RBAC ---------------------------------- */
   exec(`
     CREATE TABLE IF NOT EXISTS roles (
       id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,7 +115,13 @@ try {
     CREATE INDEX IF NOT EXISTS idx_assignments_org  ON assignments(org_unit_id);
   `);
 
-  // --- Backfills on existing tables ----------------------------------------
+  // prevent duplicate role grants to the same user at same scope
+  exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_assignment_user_role_scope
+      ON assignments(user_id, role_id, COALESCE(org_unit_id, 0));
+  `);
+
+  /* ------------------------------ backfills -------------------------------- */
   if (tableExists('users') && !columnExists('users', 'org_id')) {
     exec(`ALTER TABLE users ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1`);
   }
@@ -114,7 +132,7 @@ try {
     exec(`ALTER TABLE memberships ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1`);
   }
 
-  // --- Seed permissions & roles -------------------------------------------
+  /* -------------------------- seed roles & perms --------------------------- */
   const insPerm = db.prepare(
     'INSERT OR IGNORE INTO permissions (action, resource) VALUES (?, ?)'
   );
@@ -124,7 +142,7 @@ try {
     ['write','pipeline'],
     ['approve','requests'],
     ['read','audit'],       // aggregate/scoped
-    ['read','audit_full'],  // full detail with PII
+    ['read','audit_full'],  // admin-only PII view
   ].forEach(p => insPerm.run(...p));
 
   const insRole = db.prepare('INSERT OR IGNORE INTO roles (key, name) VALUES (?, ?)');
@@ -137,22 +155,19 @@ try {
     ['reseller','Reseller'],
   ].forEach(r => insRole.run(...r));
 
-  const qRoleId = db.prepare('SELECT id FROM roles WHERE key=?');
-  const qPermId = db.prepare('SELECT id FROM permissions WHERE action=? AND resource=?');
-  const insRolePerm = db.prepare(
-    'INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)'
-  );
+  const qRoleId   = db.prepare('SELECT id FROM roles WHERE key=?');
+  const qPermId   = db.prepare('SELECT id FROM permissions WHERE action=? AND resource=?');
+  const insRP     = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
 
   const link = (roleKey, pairs) => {
     const r = qRoleId.get(roleKey);
     if (!r) return;
     for (const [a, res] of pairs) {
       const p = qPermId.get(a, res);
-      if (p) insRolePerm.run(r.id, p.id);
+      if (p) insRP.run(r.id, p.id);
     }
   };
 
-  // Admin gets everything we defined
   link('admin', [
     ['manage','users'],
     ['manage','org_units'],
@@ -161,37 +176,29 @@ try {
     ['read','audit'],
     ['read','audit_full'],
   ]);
-
-  // BU admin
   link('business_unit_admin', [
     ['manage','users'],
     ['manage','org_units'],
     ['write','pipeline'],
     ['read','audit'],
   ]);
-
-  // Region admin
   link('region_admin', [
     ['manage','users'],
     ['manage','org_units'],
     ['read','audit'],
   ]);
-
-  // Dist manager
   link('dist_manager', [
     ['write','pipeline'],
     ['approve','requests'],
     ['read','audit'],
   ]);
-
-  // Distributor & Reseller (writer + can read aggregate)
   link('distributor', [['write','pipeline'], ['read','audit']]);
   link('reseller',    [['write','pipeline'], ['read','audit']]);
 
   exec('COMMIT');
   console.log('✅ Migration complete');
 } catch (err) {
-  try { exec('ROLLBACK'); } catch (_) {}
+  try { exec('ROLLBACK'); } catch {}
   console.error('❌ Migration failed:', err?.message || err);
   process.exit(1);
 }
