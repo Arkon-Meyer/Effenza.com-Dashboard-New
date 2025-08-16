@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --- Config (overridable via env) -------------------------------------------
+PORT="${PORT:-3000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:${PORT}}"
+ADMIN_ID="${ADMIN_ID:-1}"
+REGION_MANAGER_ID="${REGION_MANAGER_ID:-5}"
+
 QUIET=0
 if [[ "${1:-}" == "--quiet" ]]; then QUIET=1; fi
 
-# --- Helpers ---
+# --- Helpers ----------------------------------------------------------------
 have_port() {
-  # prefer healthz (explicit 200 JSON)
-  curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:3000/healthz" | grep -q '^200$'
+  curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/healthz" | grep -q '^200$'
 }
 
 start_server_if_needed() {
@@ -18,7 +23,7 @@ start_server_if_needed() {
   node server.js >/dev/null 2>&1 &
   SERVER_PID=$!
   # wait up to ~15s (30 * 0.5s)
-  for i in {1..30}; do
+  for _ in {1..30}; do
     if have_port; then break; fi
     sleep 0.5
   done
@@ -42,7 +47,6 @@ http_ok() {
 }
 
 run_verbose() {
-  # If jq missing, fall back to quiet checks (keeps script usable in slim images)
   if ! command -v jq >/dev/null 2>&1; then
     echo "[smoke:audit] 'jq' not found; falling back to quiet mode."
     run_quiet
@@ -50,37 +54,40 @@ run_verbose() {
   fi
 
   echo "== Admin aggregate (7d) =="
-  curl --fail --show-error -s -H "X-User-Id: 1" \
-    "http://localhost:3000/audit?mode=aggregate" | jq .
+  curl -fsS -H "X-User-Id: ${ADMIN_ID}" \
+    "${BASE_URL}/audit?mode=aggregate" | jq .
 
   echo
   echo "== Admin detail (masked, last 3) =="
-  curl --fail --show-error -s -H "X-User-Id: 1" \
-    "http://localhost:3000/audit?mode=detail&limit=3" | jq .
+  curl -fsS -H "X-User-Id: ${ADMIN_ID}" \
+    "${BASE_URL}/audit?mode=detail&limit=3" | jq .
 
   echo
   echo "== Admin detail WITH PII (last 3) =="
-  curl --fail --show-error -s -H "X-User-Id: 1" \
-    "http://localhost:3000/audit?mode=detail&limit=3&pii=true&reason=smoke%20test" | jq .
+  curl -fsS -H "X-User-Id: ${ADMIN_ID}" \
+    "${BASE_URL}/audit?mode=detail&limit=3&pii=true&reason=smoke%20test" | jq .
 
   echo
   echo "== Region manager aggregate (auto-scoped) =="
-  curl --fail --show-error -s -H "X-User-Id: 5" \
-    "http://localhost:3000/audit?mode=aggregate" | jq .
+  curl -fsS -H "X-User-Id: ${REGION_MANAGER_ID}" \
+    "${BASE_URL}/audit?mode=aggregate" | jq .
 }
 
-# Quiet checks (lightweight)
 run_quiet() {
-  http_ok -H "X-User-Id: 1" "http://localhost:3000/audit?mode=aggregate" \
+  http_ok -H "X-User-Id: ${ADMIN_ID}" \
+    "${BASE_URL}/audit?mode=aggregate" \
     && ok "Admin aggregate" || fail "Admin aggregate"
 
-  http_ok -H "X-User-Id: 1" "http://localhost:3000/audit?mode=detail&limit=3" \
+  http_ok -H "X-User-Id: ${ADMIN_ID}" \
+    "${BASE_URL}/audit?mode=detail&limit=3" \
     && ok "Admin detail" || fail "Admin detail"
 
-  http_ok -H "X-User-Id: 1" "http://localhost:3000/audit?mode=detail&limit=3&pii=true&reason=smoke%20test" \
+  http_ok -H "X-User-Id: ${ADMIN_ID}" \
+    "${BASE_URL}/audit?mode=detail&limit=3&pii=true&reason=smoke%20test" \
     && ok "Admin detail PII" || fail "Admin detail PII"
 
-  http_ok -H "X-User-Id: 5" "http://localhost:3000/audit?mode=aggregate" \
+  http_ok -H "X-User-Id: ${REGION_MANAGER_ID}" \
+    "${BASE_URL}/audit?mode=aggregate" \
     && ok "Region manager aggregate" || fail "Region manager aggregate"
 }
 
