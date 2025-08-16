@@ -7,6 +7,10 @@ const run = (sql, ...args) => db.prepare(sql).run(...args);
 const get = (sql, ...args) => db.prepare(sql).get(...args);
 const all = (sql, ...args) => db.prepare(sql).all(...args);
 
+function tableExists(name) {
+  return !!get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", name);
+}
+
 function ensureUser(name, email) {
   run('INSERT OR IGNORE INTO users(name, email) VALUES (?, ?)', name, email);
   return get('SELECT id, name, email FROM users WHERE email = ?', email);
@@ -33,14 +37,13 @@ function ensureOrgUnit({ orgId = 1, parentId = null, type, name }) {
     orgId, parentId, type, name
   );
   // Lookup uses same uniqueness tuple
-  const row = get(
+  return get(
     `SELECT id, org_id, parent_id, type, name
        FROM org_units
       WHERE org_id = ? AND type = ? AND name = ? AND
             ( (? IS NULL AND parent_id IS NULL) OR parent_id = ? )`,
     orgId, type, name, parentId, parentId
   );
-  return row;
 }
 
 // Fetch role id (null-safe)
@@ -48,6 +51,16 @@ const roleId = (key) => get('SELECT id FROM roles WHERE key=?', key)?.id ?? null
 
 // ---------- seed ----------
 try {
+  // Defensive: require baseline tables
+  if (!tableExists('users')) {
+    console.error("[seed] ERROR: 'users' table missing. Run migrations first (npm run migrate).");
+    process.exit(1);
+  }
+  if (!tableExists('org_units')) {
+    console.error("[seed] ERROR: 'org_units' table missing. Run migrations first (npm run migrate).");
+    process.exit(1);
+  }
+
   run('PRAGMA foreign_keys = ON');
   run('BEGIN');
 
@@ -71,47 +84,38 @@ try {
   const distD1      = ensureOrgUnit({ parentId: buA.id, type: 'distributor', name: 'Distributor D1' });
   const resR1       = ensureOrgUnit({ parentId: distD1.id, type: 'reseller', name: 'Reseller R1' });
 
-  // RBAC is optional—migrations may or may not have created these yet.
-  // We'll try to ensure roles and wire assignments if available.
+  // RBAC (optional—tables may not exist yet). Try to ensure roles and wire assignments.
   let rAdmin=null, rBUAdmin=null, rRegionAdmin=null, rDistMgr=null, rDist=null, rRes=null;
-  try {
+  if (tableExists('roles')) {
     rAdmin       = ensureRole('admin', 'Admin').id;
     rBUAdmin     = ensureRole('business_unit_admin', 'Business Unit Admin').id;
     rRegionAdmin = ensureRole('region_admin', 'Region Admin').id;
     rDistMgr     = ensureRole('dist_manager', 'Distribution Manager').id;
     rDist        = ensureRole('distributor', 'Distributor').id;
     rRes         = ensureRole('reseller', 'Reseller').id;
-  } catch (_) {
-    // roles table might not exist yet — skip wiring and continue
-  }
 
-  // Assignments (only if roles table exists)
-  if (rAdmin) {
-    // Global + BU admin
-    ensureAssignment(uAdmin.id, rAdmin, null);
-    ensureAssignment(uAdmin.id, rAdmin, buA.id);
-  }
-  if (rBUAdmin) {
-    ensureAssignment(uBU.id, rBUAdmin, buA.id);
-  }
-  if (rRegionAdmin) {
-    ensureAssignment(uNorth.id, rRegionAdmin, regionNorth.id);
-    ensureAssignment(uSouth.id, rRegionAdmin, regionSouth.id);
-  }
-  if (rDistMgr) {
-    ensureAssignment(uDistMgr.id, rDistMgr, distD1.id);
-  }
-  if (rDist) {
-    ensureAssignment(uDist.id, rDist, distD1.id);
-  }
-  if (rRes) {
-    ensureAssignment(uRes.id, rRes, resR1.id);
+    // Assignments (only if roles table exists)
+    if (tableExists('assignments')) {
+      if (rAdmin) {
+        // Global + BU admin
+        ensureAssignment(uAdmin.id, rAdmin, null);
+        ensureAssignment(uAdmin.id, rAdmin, buA.id);
+      }
+      if (rBUAdmin)     ensureAssignment(uBU.id,    rBUAdmin,     buA.id);
+      if (rRegionAdmin) { 
+        ensureAssignment(uNorth.id,  rRegionAdmin, regionNorth.id);
+        ensureAssignment(uSouth.id,  rRegionAdmin, regionSouth.id);
+      }
+      if (rDistMgr)     ensureAssignment(uDistMgr.id, rDistMgr,   distD1.id);
+      if (rDist)        ensureAssignment(uDist.id,    rDist,      distD1.id);
+      if (rRes)         ensureAssignment(uRes.id,     rRes,       resR1.id);
+    }
   }
 
   run('COMMIT');
 
   if (!QUIET) {
-    const users = all('SELECT id, name, email FROM users ORDER BY id LIMIT 10');
+    const users = all('SELECT id, name, email FROM users ORDER BY id LIMIT 20');
     const tree  = all(`
       WITH RECURSIVE r(id, parent_id, type, name, depth) AS (
         SELECT id, parent_id, type, name, 0 FROM org_units WHERE parent_id IS NULL
@@ -119,10 +123,15 @@ try {
         SELECT ou.id, ou.parent_id, ou.type, ou.name, r.depth+1
           FROM org_units ou JOIN r ON ou.parent_id = r.id
       )
-      SELECT id, parent_id, type, name, depth FROM r ORDER BY depth, type, name
+      SELECT id, parent_id, type, name, depth
+      FROM r
+      ORDER BY depth, type, name, id
     `);
-    console.log('[seed] users:', users);
-    console.log('[seed] org tree:', tree);
+
+    console.log('[seed] users:');
+    console.table(users);
+    console.log('[seed] org tree:');
+    console.table(tree);
     console.log('[seed] done (idempotent).');
   }
 } catch (err) {
