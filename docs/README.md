@@ -1,5 +1,25 @@
 # Effenza Dashboard
 
+Admin Dashboard MVP (backend + minimal UI) for [effenza.com](https://effenza.com).  
+Built with **Node.js (20.x)**, **Express**, and **SQLite (better-sqlite3)**.
+
+---
+
+## 🚀 Getting Started
+
+```bash
+# Clone repo & install deps
+git clone https://github.com/effenza/effenza-dashboard.git
+cd effenza-dashboard
+npm ci
+
+# Run DB migration + seed demo data
+npm run migrate
+npm run seed
+
+# Start dev server (port 3000, auto-reload with nodemon)
+npm start
+
 ## 📑 Project Documentation
 
 ### Security & Compliance
