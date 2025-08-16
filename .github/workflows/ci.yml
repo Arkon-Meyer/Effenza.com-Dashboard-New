@@ -5,13 +5,52 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+# Avoid duplicate runs on the same ref
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   actionlint:
+    name: Lint GitHub Actions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Lint GitHub Actions
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: actionlint
         uses: reviewdog/action-actionlint@v1
         with:
-          actionlint_flags: -color
+            actionlint_flags: -color
+            reporter: github-check
+            level: warning
+
+  # Optional: quick Node smoke to catch obvious issues (SQLite, routes, etc.)
+  smoke:
+    name: Node smoke audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Use your postinstall gate to skip the smoke during install,
+      # then run the smoke script explicitly so the job logs are clear.
+      - name: Install deps (skip smoke during install)
+        run: |
+          POSTINSTALL_SKIP_SMOKE=1 npm ci
+
+      - name: Run smoke audit
+        run: bash scripts/smoke-audit.sh --quiet
