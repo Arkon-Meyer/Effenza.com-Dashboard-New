@@ -1,10 +1,15 @@
 # Dev Quickstart (Repo-first)
 
-## Workflow
+The GitHub repo is the source of truth. Edit in GitHub → pull/sync in Codespaces.
 
-1. **Edit files in GitHub repo** → the repo is always the source of truth.  
-2. **Sync and run in Codespaces:**
+## Prerequisites (already satisfied in Codespaces)
+- Node **20.x** (enforced by `engines`)
+- Git / curl available in the shell
 
+> Tip: The `.vscode` profile sources `scripts/dev-helpers.sh` so you get `gsync`, `app-restart`, `free-port`, and `health` in the terminal.
+
+---
+
+## One-time (first run)
 ```bash
-gsync             # pulls repo, clean-reinstalls, restarts, waits for /healthz
-npm run ci:lint   # optional: lint GitHub workflows locally
+gsync               # hard-sync to main, clean reinstall, start server
