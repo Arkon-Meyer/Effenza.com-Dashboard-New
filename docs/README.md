@@ -5,10 +5,10 @@
 ### Security & Compliance
 
 - **Milestones plan:**  
-  [`docs/security/SECURITY_COMPLIANCE_MILESTONES.md`](security/SECURITY_COMPLIANCE_MILESTONES.md)
+  [`docs/security/SECURITY_COMPLIANCE_MILESTONES.md`](docs/security/SECURITY_COMPLIANCE_MILESTONES.md)
 
 - **Working checklist:**  
-  [`docs/security/SECURITY_COMPLIANCE_TODO.md`](security/SECURITY_COMPLIANCE_TODO.md)
+  [`docs/security/SECURITY_COMPLIANCE_TODO.md`](docs/security/SECURITY_COMPLIANCE_TODO.md)
 
 **Principles:** zero-knowledge by default, data minimization, least privilege, defense in depth, and full traceability.  
 Evidence, policies, and procedures will live under `docs/security/` and be version-controlled.
@@ -28,8 +28,11 @@ Evidence, policies, and procedures will live under `docs/security/` and be versi
 We work **repo-first** (edit in GitHub), then sync into Codespaces.  
 This keeps Codespaces disposable and avoids “drift” from the repo.
 
-### Setup (one-time in Codespaces)
+See the full guide in [`docs/DEV_QUICKSTART.md`](docs/DEV_QUICKSTART.md).
+
+### Quick start
+
+Open a Codespaces terminal and run:
 
 ```bash
-chmod +x scripts/dev-helpers.sh
-source scripts/dev-helpers.sh
+gsync   # pulls repo, reinstalls deps, starts nodemon
