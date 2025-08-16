@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial CHANGELOG file following Keep a Changelog format.
+- Placeholder for upcoming changes.
+
+---
 
 ## [1.0.0] - 2025-08-16
 ### Added
@@ -28,12 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `smoke-audit.sh` health checks.
 - Dev helpers (`dev-helpers.sh`) with `gsync`, `app-restart`, `free-port`, and `health`.
 
-[Unreleased]: https://github.com/your-org/effenza-dashboard/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/your-org/effenza-dashboard/releases/tag/v1.0.0
+---
 
-# Changelog
-
-## v0.1.0 — 2025-08-16
+## [0.1.0] - 2025-08-16
 Initial MVP release of Effenza Dashboard.
 
 ### Added
@@ -57,3 +56,9 @@ Initial MVP release of Effenza Dashboard.
 - PII access is self-logged (`read:audit_full`).
 - Queries require `X-User-Id` header for actor attribution.
 - Masking: by default `detail` omits `actor_id`, `ip`, and `user_agent`.
+
+---
+
+[Unreleased]: https://github.com/your-org/effenza-dashboard/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/your-org/effenza-dashboard/releases/tag/v1.0.0
+[0.1.0]: https://github.com/your-org/effenza-dashboard/releases/tag/v0.1.0
