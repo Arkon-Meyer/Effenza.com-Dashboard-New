@@ -19,3 +19,6 @@ effenza.db
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Local binaries (e.g. actionlint)
+.bin/
