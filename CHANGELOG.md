@@ -30,3 +30,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/your-org/effenza-dashboard/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/your-org/effenza-dashboard/releases/tag/v1.0.0
+
+# Changelog
+
+## v0.1.0 — 2025-08-16
+Initial MVP release of Effenza Dashboard.
+
+### Added
+- **Audit log API (`/audit`)**
+  - Two modes: `aggregate` (counts per action/resource) and `detail` (full rows).
+  - Optional PII mode with `pii=true` + mandatory `reason` query param.
+  - RBAC: non-admins are scoped to their org unit; detail+PII forbidden unless admin.
+  - Rate limiting with HTTP `429` after abuse.
+- **Audit log schema migration**
+  - Creates new `audit_log` table if missing.
+  - Detects legacy `audit_logs` and copies rows forward once.
+  - Idempotent for multiple runs.
+- **Seed + smoke scripts**
+  - `scripts/seed-demo.js` for demo orgs, regions, and teams.
+  - `scripts/smoke-audit.sh` + `scripts/smoke-audit-detail.sh` sanity checks.
+- **CI workflow**
+  - GitHub Actions with actionlint + smoke audit job.
+  - Cancels duplicate runs on same ref.
+
+### Security & Compliance
+- PII access is self-logged (`read:audit_full`).
+- Queries require `X-User-Id` header for actor attribution.
+- Masking: by default `detail` omits `actor_id`, `ip`, and `user_agent`.
