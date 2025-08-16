@@ -1,6 +1,8 @@
-# Project Documentation
+# Effenza Dashboard
 
-## Security & Compliance
+## 📑 Project Documentation
+
+### Security & Compliance
 
 - **Milestones plan:**  
   [`docs/security/SECURITY_COMPLIANCE_MILESTONES.md`](security/SECURITY_COMPLIANCE_MILESTONES.md)
@@ -11,7 +13,9 @@
 **Principles:** zero-knowledge by default, data minimization, least privilege, defense in depth, and full traceability.  
 Evidence, policies, and procedures will live under `docs/security/` and be version-controlled.
 
-## Contributing
+---
+
+## 🤝 Contributing
 
 - Use PRs to merge into `main`.  
 - Each security/compliance change should reference a checklist item.  
@@ -21,24 +25,11 @@ Evidence, policies, and procedures will live under `docs/security/` and be versi
 
 ## 🔄 Codespaces ↔ Repo Sync Workflow
 
-We edit **in the GitHub repo first**, then sync into Codespaces.
+We work **repo-first** (edit in GitHub), then sync into Codespaces.  
+This keeps Codespaces disposable and avoids “drift” from the repo.
 
 ### Setup (one-time in Codespaces)
 
 ```bash
 chmod +x scripts/dev-helpers.sh
 source scripts/dev-helpers.sh
-
-## Development
-
-For a quick setup guide, see [DEV_QUICKSTART.md](./docs/DEV_QUICKSTART.md).
-
-### Developer tools
-
-We use a few local tools to keep consistency across environments:
-
-- **actionlint** — lints GitHub Actions workflows  
-  Install it locally by running:
-
-  ```bash
-  scripts/install-actionlint.sh
