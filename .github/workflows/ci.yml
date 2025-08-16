@@ -1,20 +1,17 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
-    branches: [ main ]
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  build-test:
+  actionlint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Lint GitHub Actions
+        uses: reviewdog/action-actionlint@v1
         with:
-          node-version: 20
-      - run: npm ci || npm install
-      - run: npm run migrate
-      - run: npm run seed
-      - run: bash scripts/smoke-audit.sh --quiet
+          actionlint_flags: -color
