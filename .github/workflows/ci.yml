@@ -28,13 +28,13 @@ jobs:
       - name: actionlint
         uses: reviewdog/action-actionlint@v1
         with:
-            actionlint_flags: -color
-            reporter: github-check
-            level: warning
+          actionlint_flags: -color
+          reporter: github-check
+          level: warning
 
-  # Optional: quick Node smoke to catch obvious issues (SQLite, routes, etc.)
   smoke:
     name: Node smoke audit
+    needs: actionlint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,11 +46,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # Use your postinstall gate to skip the smoke during install,
-      # then run the smoke script explicitly so the job logs are clear.
+      # Use your postinstall gate to skip the smoke during install
+      # Then run the smoke script explicitly so failures are visible in CI
       - name: Install deps (skip smoke during install)
-        run: |
-          POSTINSTALL_SKIP_SMOKE=1 npm ci
+        env:
+          CI: 'true'
+          POSTINSTALL_SKIP_SMOKE: '1'
+        run: npm ci
 
       - name: Run smoke audit
         run: bash scripts/smoke-audit.sh --quiet
