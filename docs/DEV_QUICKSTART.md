@@ -1,15 +1,14 @@
-# Dev Quickstart (Repo-first)
+# Developer Quickstart
 
-The GitHub repo is the source of truth. Edit in GitHub → pull/sync in Codespaces.
+Effenza Dashboard (MVP) — local dev setup.
 
-## Prerequisites (already satisfied in Codespaces)
-- Node **20.x** (enforced by `engines`)
-- Git / curl available in the shell
+## Prerequisites
+- Node.js 20.x
+- npm 9+
+- SQLite (bundled via better-sqlite3)
 
-> Tip: The `.vscode` profile sources `scripts/dev-helpers.sh` so you get `gsync`, `app-restart`, `free-port`, and `health` in the terminal.
-
----
-
-## One-time (first run)
+## Install
 ```bash
-gsync               # hard-sync to main, clean reinstall, start server
+git clone https://github.com/effenza/effenza-dashboard.git
+cd effenza-dashboard
+npm install
