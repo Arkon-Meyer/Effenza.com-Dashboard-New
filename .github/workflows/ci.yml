@@ -7,12 +7,10 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-# Avoid duplicate runs on the same ref
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Enable Checks API so actionlint can report nicely
 permissions:
   contents: read
   pull-requests: read
@@ -28,7 +26,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: actionlint
         uses: reviewdog/action-actionlint@v1
         with:
@@ -40,7 +37,11 @@ jobs:
     name: Node smoke audit
     needs: actionlint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    env:
+      PORT: "3000"
+      BASE_URL: "http://localhost:3000"
+      CI: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,18 +49,36 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
-      # Skip smoke during install; run it explicitly next
+      # Run migrate+seed during install; skip smoke in postinstall
       - name: Install deps (skip smoke during install)
         env:
-          CI: 'true'
-          POSTINSTALL_SKIP_SMOKE: '1'
+          POSTINSTALL_SKIP_SMOKE: "1"
         run: npm ci
+
+      - name: Start server (background) + wait for /healthz
+        run: |
+          nohup node server.js > server.log 2>&1 & echo $! > server.pid
+          for i in {1..30}; do
+            curl -fsS "$BASE_URL/healthz" && break
+            sleep 1
+          done
 
       - name: Run smoke audit (aggregate)
         run: npm run smoke:audit --quiet
 
       - name: Run smoke audit (detail)
         run: npm run smoke:audit:detail --quiet
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          echo "---- server.log (tail) ----"
+          tail -n 200 server.log || true
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then kill $(cat server.pid) || true; fi
