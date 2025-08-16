@@ -4,10 +4,9 @@ const router = express.Router();
 const db = require('../database');
 const { can } = require('../utils/authz');
 
-// --- helpers to make SQLite bindings safe ---
 const toSqlDateTime = (d) => {
   const dt = (d instanceof Date) ? d : new Date(d);
-  return dt.toISOString().slice(0, 19).replace('T', ' '); // "YYYY-MM-DD HH:MM:SS"
+  return dt.toISOString().slice(0, 19).replace('T', ' ');
 };
 const toInt = (v) => (v == null ? null : Number.parseInt(v, 10));
 const nonEmpty = (xs) => Array.isArray(xs) && xs.length > 0;
@@ -94,10 +93,8 @@ router.get('/', rateLimit, (req, res) => {
 
     const scopeParam = (req.query.org_unit_id != null) ? toInt(req.query.org_unit_id) : null;
 
-    // Determine admin + a reasonable org hint for RBAC checks
     const isAdmin = can(user, 'read', 'audit_full', { orgUnitId: scopeParam ?? null });
 
-    // For non-admins, find one org assignment as a default scope anchor
     let userAssignedOrg = null;
     if (!isAdmin) {
       const r = db.prepare(`
@@ -109,7 +106,6 @@ router.get('/', rateLimit, (req, res) => {
       userAssignedOrg = r?.org_unit_id ?? null;
     }
 
-    // Use explicit scope if provided; otherwise fall back to user’s assigned org
     const orgHint = scopeParam ?? userAssignedOrg ?? null;
 
     const canAggregateAny =
@@ -129,7 +125,7 @@ router.get('/', rateLimit, (req, res) => {
       const where = [];
       const params = [];
 
-      where.push('created_at BETWEEN ? AND ?'); params.push(from, to);
+      where.push('at BETWEEN ? AND ?'); params.push(from, to);
       if (action)   { where.push('action = ?');   params.push(action); }
       if (resource) { where.push('resource = ?'); params.push(resource); }
       if (Array.isArray(scopeIds) && scopeIds.length > 0) {
@@ -138,9 +134,9 @@ router.get('/', rateLimit, (req, res) => {
       }
 
       const sql = `
-        SELECT id, actor_id, action, resource, resource_id, org_unit_id,
-               details, ip, user_agent, created_at
-        FROM audit_log
+        SELECT id, actor_user_id, action, resource, resource_id, org_unit_id,
+               details, ip, user_agent, at
+        FROM audit_logs
         WHERE ${where.length ? where.join(' AND ') : '1=1'}
         ORDER BY id DESC
         LIMIT ? OFFSET ?
@@ -154,22 +150,22 @@ router.get('/', rateLimit, (req, res) => {
           return {
             id: r.id, action: r.action, resource: r.resource,
             resource_id: r.resource_id, org_unit_id: r.org_unit_id,
-            created_at: r.created_at,
+            created_at: r.at,
           };
         }
         return {
-          id: r.id, actor_id: r.actor_id, action: r.action, resource: r.resource,
+          id: r.id, actor_id: r.actor_user_id, action: r.action, resource: r.resource,
           resource_id: r.resource_id, org_unit_id: r.org_unit_id,
           details: r.details, ip: maskIp(r.ip), user_agent: maskUA(r.user_agent),
-          created_at: r.created_at,
+          created_at: r.at,
         };
       });
 
       if (wantPII) {
         // Log the sensitive read itself
         db.prepare(`
-          INSERT INTO audit_log (actor_id, action, resource, resource_id, org_unit_id, details, ip, user_agent)
-          VALUES (?, 'read', 'audit_full', NULL, ?, json(?), ?, ?)
+          INSERT INTO audit_logs (actor_user_id, action, resource, resource_id, org_unit_id, details, ip, user_agent)
+          VALUES (?, 'read', 'audit_full', NULL, ?, ?, ?, ?)
         `).run(
           user.id,
           scopeParam ?? null,
@@ -200,7 +196,7 @@ router.get('/', rateLimit, (req, res) => {
 
     const where = [];
     const params = [];
-    where.push('created_at BETWEEN ? AND ?'); params.push(from, to);
+    where.push('at BETWEEN ? AND ?'); params.push(from, to);
     if (action)   { where.push('action = ?');   params.push(action); }
     if (resource) { where.push('resource = ?'); params.push(resource); }
     if (Array.isArray(scopeIds) && scopeIds.length > 0) {
@@ -213,7 +209,7 @@ router.get('/', rateLimit, (req, res) => {
 
     const sqlAgg = `
       SELECT action, COUNT(*) AS count
-      FROM audit_log
+      FROM audit_logs
       WHERE ${where.length ? where.join(' AND ') : '1=1'}
       GROUP BY action
       ORDER BY action
