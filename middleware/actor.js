@@ -9,39 +9,49 @@ const C = {
   dim: s => `\x1b[2m${s}\x1b[0m`,
 };
 
-module.exports = function actor() {
-  return (req, _res, next) => {
-    const raw = req.header('X-User-Id');
+const SELECT_USER = db.prepare('SELECT id, name, email FROM users WHERE id = ?');
 
+const VERBOSE = process.env.ACTOR_LOG === '1';
+const STRICT  = process.env.ACTOR_REQUIRED === '1';
+
+module.exports = function actor() {
+  return (req, res, next) => {
+    req.actor = null;
+
+    const raw = req.header('X-User-Id'); // header names are case-insensitive
     if (!raw) {
-      console.warn(C.yellow('[actor] Missing X-User-Id header'));
+      if (VERBOSE) console.warn(C.yellow('[actor] Missing X-User-Id header'));
+      if (STRICT)  return res.status(401).json({ error: 'Missing X-User-Id' });
       return next();
     }
 
     const id = Number(raw);
     if (!Number.isInteger(id) || id <= 0) {
-      console.warn(C.yellow(`[actor] Invalid X-User-Id value: "${raw}"`));
+      if (VERBOSE) console.warn(C.yellow(`[actor] Invalid X-User-Id: "${raw}"`));
+      if (STRICT)  return res.status(401).json({ error: 'Invalid X-User-Id' });
       return next();
     }
 
     try {
-      const user = db
-        .prepare('SELECT id, name, email FROM users WHERE id = ?')
-        .get(id);
-
+      const user = SELECT_USER.get(id);
       if (user) {
         req.actor = user;
-        console.log(
-          C.green(`[actor] ✅ authenticated id=${id}`),
-          C.dim(`${user.name} <${user.email}>`)
-        );
+        if (VERBOSE) {
+          console.log(
+            C.green(`[actor] ✅ authenticated id=${id}`),
+            C.dim(`${user.name} <${user.email}>`)
+          );
+        }
       } else {
-        console.warn(C.yellow(`[actor] No user found for id=${id}`));
+        if (VERBOSE) console.warn(C.yellow(`[actor] No user found for id=${id}`));
+        if (STRICT)  return res.status(401).json({ error: 'Unknown user' });
       }
     } catch (err) {
       console.error(C.red(`[actor] DB lookup failed for id=${id}: ${err.message}`));
+      // In STRICT mode, treat DB failure as auth failure
+      if (STRICT) return res.status(500).json({ error: 'Auth lookup failed' });
     }
 
     next();
   };
-}
+};
