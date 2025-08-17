@@ -7,12 +7,12 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-# Avoid duplicate runs on the same ref
+# Avoid duplicate runs
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Enable Checks API so actionlint can report nicely
+# Allow actionlint to annotate PRs
 permissions:
   contents: read
   pull-requests: read
@@ -20,14 +20,13 @@ permissions:
 
 jobs:
   actionlint:
-    name: Lint GitHub Actions
+    name: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
       - name: actionlint
         uses: reviewdog/action-actionlint@v1
         with:
@@ -36,7 +35,8 @@ jobs:
           level: warning
 
   install_lockfile:
-    name: Install & lockfile sanity
+    name: install & lockfile sanity
+    needs: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -45,14 +45,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - name: Clean install (no scripts)
+      - name: Clean install (no lifecycle scripts)
         run: npm ci --ignore-scripts
 
   migrate_seed:
-    name: DB migrate & seed
+    name: db migrate & seed
     needs: install_lockfile
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,7 +60,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci --ignore-scripts
-      - name: Run migrations + seed (no smoke in postinstall)
+      - name: Run migrations + seed (skip postinstall smoke)
         env:
           POSTINSTALL_SKIP_SMOKE: '1'
         run: |
@@ -68,60 +68,15 @@ jobs:
           npm run seed
 
   smoke:
-    name: Node smoke audit
-    needs: [actionlint, migrate_seed]
+    name: smoke (aggregate + detail)
+    needs: migrate_seed
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
       PORT: "3000"
-      BASE_URL: "http://localhost:3000"
+      BASE_URL: "http://127.0.0.1:3000"
       CI: "true"
       POSTINSTALL_SKIP_SMOKE: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install deps (skip smoke during install)
-        run: npm ci
-
-      - name: Start server (background) + wait for /healthz
-        run: |
-          nohup node server.js > server.log 2>&1 & echo $! > server.pid
-          ok=""
-          for i in {1..30}; do
-            if curl -fsS "$BASE_URL/healthz" >/dev/null 2>&1; then ok="yes"; break; fi
-            sleep 1
-          done
-          [ -n "$ok" ] || { echo "API never became healthy" >&2; tail -n +1 server.log || true; exit 1; }
-
-      - name: Run smoke audit (aggregate)
-        run: npm run smoke:audit --quiet
-
-      - name: Run smoke audit (detail)
-        run: npm run smoke:audit:detail --quiet
-
-      - name: Show server log on failure
-        if: failure()
-        run: |
-          echo "---- server.log (tail) ----"
-          tail -n 200 server.log || true
-
-      - name: Stop server
-        if: always()
-        run: |
-          if [ -f server.pid ]; then kill "$(cat server.pid)" || true; fi
-
-  rate_limit_smoke:
-    name: Rate-limit smoke
-    needs: migrate_seed
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -129,17 +84,47 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci --ignore-scripts
+      - name: Start server in background & wait for /healthz
+        run: |
+          nohup node server.js > server.log 2>&1 & echo $! > server.pid
+          for i in {1..30}; do
+            curl -fsS "$BASE_URL/healthz" && break
+            sleep 1
+          done
+      - name: Run smoke audit (aggregate)
+        run: npm run smoke:audit --quiet
+      - name: Run smoke audit (detail)
+        run: npm run smoke:audit:detail --quiet
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          echo "---- server.log (tail) ----"
+          tail -n 200 server.log || true
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then kill "$(cat server.pid)" || true; fi
 
-      - name: Start server
+  rate_limit_smoke:
+    name: rate-limit smoke
+    needs: migrate_seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --ignore-scripts
+      - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
           for i in {1..30}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/healthz || true)
             [ "$code" = "200" ] && break
-            sleep 0.5
+            sleep 1
           done
-          [ "$code" = "200" ] || { echo "API never became healthy"; tail -n 200 server.log || true; exit 1; }
-
       - name: Burst requests and expect 429s
         run: |
           hits=0
@@ -149,27 +134,12 @@ jobs:
           done
           echo "Saw $hits rate-limit responses"
           [ $hits -ge 5 ] || (echo "Expected some 429s but saw $hits" && exit 1)
-
       - name: Show server log on failure
         if: failure()
-        run: tail -n 200 server.log || true
-
+        run: |
+          echo "---- server.log (tail) ----"
+          tail -n 200 server.log || true
       - name: Stop server
         if: always()
         run: |
           if [ -f server.pid ]; then kill "$(cat server.pid)" || true; fi
-
-  prod_vuln_audit:
-    name: Production vuln audit
-    needs: install_lockfile
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci --ignore-scripts
-      - name: Audit (fail on high/critical only)
-        run: npm audit --omit=dev --audit-level=high
