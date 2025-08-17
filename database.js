@@ -1,43 +1,30 @@
-const Database = require('better-sqlite3');
+// database.js - Postgres Pool (supports DATABASE_URL)
+const { Pool } = require('pg');
+require('dotenv').config(); // no-op in CI
 
-const db = new Database('effenza.db');
+const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@127.0.0.1:5432/app';
 
-// Safety & performance
-db.pragma('foreign_keys = ON');
-db.pragma('journal_mode = WAL');
+const pool = new Pool({
+  connectionString,
+  max: Number(process.env.PG_POOL_MAX || 10),
+  idleTimeoutMillis: 30_000
+});
 
-// Groups table
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS groups (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL
-  )
-`).run();
+// simple helpers
+const query = (text, params) => pool.query(text, params);
+const tx = async (fn) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await fn(client);
+    await client.query('COMMIT');
+    return res;
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw e;
+  } finally {
+    client.release();
+  }
+};
 
-// Users table
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS users (
-    id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    name  TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL
-  )
-`).run();
-
-// Memberships table
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS memberships (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id   INTEGER NOT NULL,
-    group_id  INTEGER NOT NULL,
-    role      TEXT NOT NULL CHECK(role IN ('viewer','editor','group-admin','dashboard-admin')),
-    FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
-    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-  )
-`).run();
-
-// Indexes (run after table creation)
-db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uniq_membership ON memberships(user_id, group_id)').run();
-db.prepare('CREATE INDEX IF NOT EXISTS idx_memberships_user  ON memberships(user_id)').run();
-db.prepare('CREATE INDEX IF NOT EXISTS idx_memberships_group ON memberships(group_id)').run();
-
-module.exports = db;
+module.exports = { pool, query, tx };
