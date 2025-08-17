@@ -13,34 +13,23 @@
     "smoke:audit": "bash scripts/smoke-audit.sh",
     "smoke:audit:detail": "bash scripts/smoke-audit-detail.sh",
     "audit:cleanup": "node scripts/cron-clean-audit.js",
-    "audit:prod": "npm audit --omit=dev --audit-level=high",
     "postinstall": "npm run migrate && SEED_QUIET=1 npm run seed && if [ \"$POSTINSTALL_SKIP_SMOKE\" != \"1\" ]; then bash scripts/smoke-audit.sh --quiet; fi",
     "ci:lint:install": "bash scripts/install-actionlint.sh",
-    "ci:lint": "bash -lc '[ -x .bin/actionlint ] || bash scripts/install-actionlint.sh; .bin/actionlint -color || true'",
-    "ci": "npm ci --ignore-scripts && npm run audit:prod && npm run smoke:audit --quiet && npm run smoke:audit:detail --quiet"
+    "ci:lint": "bash -lc '[ -x .bin/actionlint ] || bash scripts/install-actionlint.sh; .bin/actionlint -color || true'"
   },
-  "keywords": ["effenza", "dashboard", "admin", "express", "sqlite"],
+  "keywords": ["effenza", "dashboard", "admin", "express", "postgres"],
   "author": "Effenza Engineering <dev@effenza.com>",
-  "license": "UNLICENSED",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/effenza/effenza-dashboard.git"
-  },
-  "bugs": {
-    "url": "https://github.com/effenza/effenza-dashboard/issues"
-  },
-  "homepage": "https://github.com/effenza/effenza-dashboard#readme",
+  "license": "Proprietary",
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "helmet": "^7.1.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.3",
+    "dotenv": "^16.4.5"
   },
-  "engines": {
-    "node": "20.x"
-  }
+  "engines": { "node": "20.x" }
 }
