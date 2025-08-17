@@ -22,8 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: actionlint
         uses: reviewdog/action-actionlint@v1
@@ -57,15 +56,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      # ⬇️ build native addons (better-sqlite3) but skip smoke in postinstall
-      - name: Install deps (build native bindings)
+      # IMPORTANT: allow scripts so better-sqlite3 downloads its binary
+      - name: Install deps (allow scripts)
         env:
           POSTINSTALL_SKIP_SMOKE: '1'
         run: npm ci
-      # postinstall already runs migrate+seed; these are harmless if repeated:
       - name: Run migrations + seed (idempotent)
         env:
-          SEED_QUIET: '1'
+          POSTINSTALL_SKIP_SMOKE: '1'
         run: |
           npm run migrate
           npm run seed
@@ -86,11 +84,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      # ⬇️ we need better-sqlite3 compiled because we start the server
-      - name: Install deps (build native bindings)
+      # allow scripts so better-sqlite3 binary exists for the server
+      - run: npm ci
         env:
           POSTINSTALL_SKIP_SMOKE: '1'
-        run: npm ci
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
@@ -123,11 +120,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      # ⬇️ need compiled addon here too
-      - name: Install deps (build native bindings)
+      # allow scripts so server can load the native module
+      - run: npm ci
         env:
           POSTINSTALL_SKIP_SMOKE: '1'
-        run: npm ci
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
