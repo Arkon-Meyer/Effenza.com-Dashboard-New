@@ -1,27 +1,14 @@
-# bash init file for this workspace (repo-first)
-# Runs for every Integrated Terminal using the "Bash (init)" profile
-
-# Be forgiving—never kill the shell in init
+#!/usr/bin/env bash
+# .vscode/terminal-init.sh — safe init, never fail
 set +e
 
-# Prefer repo-local binaries (e.g., .bin/actionlint)
-case ":$PATH:" in
-  *":$PWD/.bin:"*) ;; # already present
-  *) export PATH="$PWD/.bin:$PATH" ;;
-esac
-
-# Opportunistically use Node 20 if nvm exists (no error if missing)
-if command -v nvm >/dev/null 2>&1; then
-  nvm use 20 >/dev/null 2>&1 || true
+# (Optional) load helpers if present, but never crash if missing
+if [ -f scripts/dev-helpers.sh ]; then
+  # shellcheck disable=SC1091
+  source scripts/dev-helpers.sh || true
 fi
 
-HELPERS="${PWD}/scripts/dev-helpers.sh"
-if [ -f "$HELPERS" ]; then
-  # shellcheck disable=SC1090
-  . "$HELPERS" || true
-else
-  echo "[init] helpers NOT found at: $HELPERS"
-fi
+echo "[dev] Terminal ready. Helpful cmds: gsync, app-restart, free-port, health"
 
-# keep interactive conveniences
-set +o nounset
+# Always succeed so the VS Code terminal doesn't close
+true
