@@ -1,111 +1,84 @@
-// scripts/seed-demo.js
 /* eslint-disable no-console */
-const db = require('../database');
+const { tx } = require('../database');
 
-function row(obj) { return Object.assign({}, obj); }
+(async () => {
+  try {
+    await tx(async (db) => {
+      // Demo users (idempotent by email)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id BIGSERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+      `);
 
-// helpers: select-or-insert patterns (idempotent)
-const qUserByEmail = db.prepare('SELECT id FROM users WHERE email=?');
-const insUser      = db.prepare('INSERT INTO users(name,email,org_id) VALUES (?,?,1)');
-function ensureUser(name, email) {
-  const hit = qUserByEmail.get(email);
-  if (hit) return hit.id;
-  return insUser.run(name, email).lastInsertRowid;
-}
+      const users = [
+        ['Admin', 'admin@example.com'],
+        ['asgegs','asgr@gmal.com'],
+        ['Arkon','arkon@example.com'],
+        ['Alice','alice@example.com'],
+        ['BU Owner','bu@example.com'],
+        ['Region Lead','region@example.com'],
+        ['Dist Manager','dm@example.com'],
+        ['Reseller User','res@example.com'],
+        ['BU Admin','buadmin@example.com'],
+        ['Region North Admin','region.north@example.com'],
+        ['Region South Admin','region.south@example.com'],
+        ['Dist Manager','dist.manager@example.com'],
+        ['Distributor User','distributor.user@example.com'],
+        ['Reseller User','reseller.user@example.com']
+      ];
+      for (const [name, email] of users) {
+        await db.query(
+          `INSERT INTO users(name,email,org_id) VALUES ($1,$2,1)
+           ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name`,
+          [name, email]
+        );
+      }
 
-// NOTE: uniqueness is enforced by uniq_orgunit_org_parent_type_name in migrate.js
-const qOrgUnit = db.prepare(`
-  SELECT id FROM org_units
-  WHERE org_id=1 AND type=? AND name=? AND COALESCE(parent_id,0)=COALESCE(?,0)
-`);
-const insOrgUnit = db.prepare(`
-  INSERT INTO org_units(org_id, parent_id, type, name)
-  VALUES (1, ?, ?, ?)
-`);
-function ensureOrgUnit({ parentId = null, type, name }) {
-  const hit = qOrgUnit.get(type, name, parentId ?? null);
-  if (hit) return hit.id;
-  return insOrgUnit.run(parentId ?? null, type, name).lastInsertRowid;
-}
+      // org_units shape from your demo
+      const upsertOU = `
+        INSERT INTO org_units(org_id,parent_id,type,name)
+        VALUES ($1,$2,$3,$4)
+        ON CONFLICT (org_id, COALESCE(parent_id,0), type, name) DO NOTHING
+        RETURNING id
+      `;
+      const root = await db.query(upsertOU, [1, null, 'business_unit', 'BU A']);
+      const buA = root.rows[0]?.id || (await db.query(`SELECT id FROM org_units WHERE name='BU A' AND type='business_unit'`)).rows[0].id;
 
-const qRoleId = db.prepare('SELECT id FROM roles WHERE key=?');
-const insAssign = db.prepare(`
-  INSERT OR IGNORE INTO assignments(user_id, role_id, org_unit_id)
-  VALUES (?, ?, ?)
-`);
-function ensureAssignment({ userId, roleKey, orgUnitId = null }) {
-  const r = qRoleId.get(roleKey);
-  if (!r) throw new Error(`Role not found: ${roleKey}`);
-  insAssign.run(userId, r.id, orgUnitId ?? null); // unique index prevents dupes
-}
+      const id = async (name, type, parent) => {
+        const ins = await db.query(upsertOU, [1, parent, type, name]);
+        if (ins.rows[0]) return ins.rows[0].id;
+        return (await db.query(
+          `SELECT id FROM org_units WHERE org_id=1 AND name=$1 AND type=$2 AND COALESCE(parent_id,0)=COALESCE($3,0)`,
+          [name, type, parent]
+        )).rows[0].id;
+      };
 
-try {
-  db.exec('BEGIN');
+      const region1 = await id('Region 1','region', buA);
+      const team1   = await id('Team 1','team', region1);
+      const dist1   = await id('Distributor 1','distributor', team1);
+      await id('Reseller 1','reseller', dist1);
+      const rx = await id('Region X','region', buA);
+      const ry = await id('Region Y','region', buA);
+      await id('Team A','team', ry);
+      await id('Team B','team', ry);
+      await id('Region QA','region', buA);
+      await id('Region QA2','region', buA);
+      await id('Team QA2','team', ry);
+      const north = await id('North','region', buA);
+      const south = await id('South','region', buA);
+      await id('Alpha','team', north);
+      await id('Beta','team', south);
+      const d1 = await id('Distributor D1','distributor', buA);
+      await id('Reseller R1','reseller', d1);
+    });
 
-  /* ------------------------------- users ---------------------------------- */
-  const adminId   = ensureUser('Admin',               'admin@example.com');
-  const buOwnerId = ensureUser('BU Owner',            'bu@example.com');
-  const regLeadId = ensureUser('Region Lead',         'region@example.com');
-  const distMgrId = ensureUser('Dist Manager',        'dm@example.com');
-  const resUserId = ensureUser('Reseller User',       'res@example.com');
-
-  // extra demo users from your previous seeds
-  ensureUser('Arkon',                  'arkon@example.com');
-  ensureUser('Alice',                  'alice@example.com');
-  ensureUser('BU Admin',               'buadmin@example.com');
-  ensureUser('Region North Admin',     'region.north@example.com');
-  ensureUser('Region South Admin',     'region.south@example.com');
-  ensureUser('Dist Manager',           'dist.manager@example.com');
-  ensureUser('Distributor User',       'distributor.user@example.com');
-  ensureUser('Reseller User',          'reseller.user@example.com');
-
-  /* ------------------------------ org tree -------------------------------- */
-  const buA = ensureOrgUnit({ type: 'business_unit', name: 'BU A' });
-
-  const regionX = ensureOrgUnit({ parentId: buA, type: 'region', name: 'Region X' });
-  const regionY = ensureOrgUnit({ parentId: buA, type: 'region', name: 'Region Y' });
-
-  const teamA = ensureOrgUnit({ parentId: regionY, type: 'team', name: 'Team A' });
-  const teamB = ensureOrgUnit({ parentId: regionY, type: 'team', name: 'Team B' });
-
-  const distD1 = ensureOrgUnit({ parentId: buA, type: 'distributor', name: 'Distributor D1' });
-  ensureOrgUnit({ parentId: distD1, type: 'reseller', name: 'Reseller R1' });
-
-  /* ------------------------------- RBAC ----------------------------------- */
-  // global admin
-  ensureAssignment({ userId: adminId,   roleKey: 'admin',                orgUnitId: null });
-
-  // BU owner/admin over BU A
-  ensureAssignment({ userId: buOwnerId, roleKey: 'business_unit_admin',  orgUnitId: buA });
-
-  // Region lead over Region Y
-  ensureAssignment({ userId: regLeadId, roleKey: 'region_admin',         orgUnitId: regionY });
-
-  // Dist manager over Distributor D1
-  ensureAssignment({ userId: distMgrId, roleKey: 'dist_manager',         orgUnitId: distD1 });
-
-  // Reseller user (writer)
-  ensureAssignment({ userId: resUserId, roleKey: 'reseller',             orgUnitId: teamA });
-
-  db.exec('COMMIT');
-
-  // pretty prints
-  const users = db.prepare('SELECT id, name, email FROM users ORDER BY id').all();
-  console.table(users);
-
-  const orgs = db.prepare(`
-    WITH RECURSIVE t(id, parent_id, type, name, depth) AS (
-      SELECT id, parent_id, type, name, 0 FROM org_units WHERE parent_id IS NULL
-      UNION ALL
-      SELECT u.id, u.parent_id, u.type, u.name, t.depth+1
-      FROM org_units u JOIN t ON u.parent_id = t.id
-    ) SELECT * FROM t ORDER BY id
-  `).all();
-  console.table(orgs);
-
-  console.log('[seed] done (idempotent).');
-} catch (err) {
-  try { db.exec('ROLLBACK'); } catch {}
-  console.error('[seed] error:', err?.message || err);
-  process.exit(1);
-}
+    console.log('✅ Seed complete (idempotent)');
+  } catch (e) {
+    console.error('❌ Seed failed:', e?.message || e);
+    process.exit(1);
+  }
+})();
