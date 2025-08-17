@@ -21,7 +21,7 @@
   },
   "keywords": ["effenza", "dashboard", "admin", "express", "sqlite"],
   "author": "Effenza Engineering <dev@effenza.com>",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/effenza/effenza-dashboard.git"
