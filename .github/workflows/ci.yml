@@ -7,12 +7,10 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-# Avoid duplicate runs
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Allow actionlint to annotate PRs
 permissions:
   contents: read
   pull-requests: read
@@ -59,10 +57,15 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci --ignore-scripts
-      - name: Run migrations + seed (skip postinstall smoke)
+      # ⬇️ build native addons (better-sqlite3) but skip smoke in postinstall
+      - name: Install deps (build native bindings)
         env:
           POSTINSTALL_SKIP_SMOKE: '1'
+        run: npm ci
+      # postinstall already runs migrate+seed; these are harmless if repeated:
+      - name: Run migrations + seed (idempotent)
+        env:
+          SEED_QUIET: '1'
         run: |
           npm run migrate
           npm run seed
@@ -83,7 +86,11 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci --ignore-scripts
+      # ⬇️ we need better-sqlite3 compiled because we start the server
+      - name: Install deps (build native bindings)
+        env:
+          POSTINSTALL_SKIP_SMOKE: '1'
+        run: npm ci
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
@@ -116,7 +123,11 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci --ignore-scripts
+      # ⬇️ need compiled addon here too
+      - name: Install deps (build native bindings)
+        env:
+          POSTINSTALL_SKIP_SMOKE: '1'
+        run: npm ci
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
