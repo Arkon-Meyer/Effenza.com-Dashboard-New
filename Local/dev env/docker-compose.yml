@@ -1,0 +1,20 @@
+# docker-compose.yml
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/app
+      POSTINSTALL_SKIP_SMOKE: "1"
+    ports: ["3000:3000"]
+    depends_on: [db]
+volumes:
+  pgdata:
