@@ -7,10 +7,12 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+# Avoid duplicate runs
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Allow actionlint to annotate PRs
 permissions:
   contents: read
   pull-requests: read
@@ -51,21 +53,28 @@ jobs:
     needs: install_lockfile
     runs-on: ubuntu-latest
     timeout-minutes: 6
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres -d app"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
+      POSTINSTALL_SKIP_SMOKE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      # ⬇️ build native addons (better-sqlite3) but skip smoke in postinstall
-      - name: Install deps (build native bindings)
-        env:
-          POSTINSTALL_SKIP_SMOKE: '1'
-        run: npm ci
-      # postinstall already runs migrate+seed; these are harmless if repeated:
-      - name: Run migrations + seed (idempotent)
-        env:
-          SEED_QUIET: '1'
+      - run: npm ci --ignore-scripts
+      - name: Run migrations + seed (skip postinstall smoke)
         run: |
           npm run migrate
           npm run seed
@@ -75,7 +84,19 @@ jobs:
     needs: migrate_seed
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres -d app"
+          --health-interval=5s --health-timeout=5s --health-retries=20
     env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
       PORT: "3000"
       BASE_URL: "http://127.0.0.1:3000"
       CI: "true"
@@ -86,11 +107,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      # ⬇️ we need better-sqlite3 compiled because we start the server
-      - name: Install deps (build native bindings)
-        env:
-          POSTINSTALL_SKIP_SMOKE: '1'
-        run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
@@ -117,17 +134,26 @@ jobs:
     needs: migrate_seed
     runs-on: ubuntu-latest
     timeout-minutes: 6
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres -d app"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      # ⬇️ need compiled addon here too
-      - name: Install deps (build native bindings)
-        env:
-          POSTINSTALL_SKIP_SMOKE: '1'
-        run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
