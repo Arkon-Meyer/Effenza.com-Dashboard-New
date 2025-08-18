@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-# Safe terminal init for Codespaces — never crash the terminal
+# .vscode/terminal-init.sh — never fail; only enhance the shell
 
-# Be forgiving: never exit on error in this init
+# Be forgiving in interactive terminals
 set +e
 
 echo "[dev] init running at $(date +%H:%M:%S) in $(pwd)"
 
-# Only load helpers if file exists *and* has no syntax errors
+# Load helper functions if present, but NEVER fail the terminal
 if [ -f scripts/dev-helpers.sh ]; then
-  if bash -n scripts/dev-helpers.sh 2>/dev/null; then
-    # shellcheck disable=SC1091
-    source scripts/dev-helpers.sh || true
-    echo "[dev] helpers loaded (gsync, app-restart, free-port, health)"
-  else
-    echo "[dev] WARN: scripts/dev-helpers.sh has syntax errors; skipping load."
-  fi
-else
-  echo "[dev] (no helpers yet)"
+  # shellcheck disable=SC1091
+  source scripts/dev-helpers.sh || true
+  echo "[dev] helpers loaded (gsync, app-restart, free-port, health)"
 fi
 
 echo "[dev] Terminal ready. Try: gsync, app-restart, health"
 
-# Keep interactive shell alive even if someone 'return's
-return 0 2>/dev/null || true
+# MUST end success so VS Code keeps the terminal open
+true
