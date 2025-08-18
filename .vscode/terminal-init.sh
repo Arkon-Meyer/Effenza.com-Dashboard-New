@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# .vscode/terminal-init.sh — safe init, never fail
+# .vscode/terminal-init.sh — safe init for Codespaces terminal
+
+# Never fail this script
 set +e
+
+echo "[dev] init: $(date)"
 
 # (Optional) load helpers if present, but never crash if missing
 if [ -f scripts/dev-helpers.sh ]; then
@@ -10,5 +14,6 @@ fi
 
 echo "[dev] Terminal ready. Helpful cmds: gsync, app-restart, free-port, health"
 
-# Always succeed so the VS Code terminal doesn't close
-true
+# When invoked via --init-file this file is *executed* (not sourced).
+# Ensure we always exit successfully:
+return 0 2>/dev/null || exit 0
