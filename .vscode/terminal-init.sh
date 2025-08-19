@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
-# .vscode/terminal-init.sh — never fail; only enhance the shell
-
-# Be forgiving in interactive terminals
+# Minimal, never-fail init for Codespaces
 set +e
-
-echo "[dev] init running at $(date +%H:%M:%S) in $(pwd)"
-
-# Load helper functions if present, but NEVER fail the terminal
-if [ -f scripts/dev-helpers.sh ]; then
-  # shellcheck disable=SC1091
-  source scripts/dev-helpers.sh || true
-  echo "[dev] helpers loaded (gsync, app-restart, free-port, health)"
-fi
-
-echo "[dev] Terminal ready. Try: gsync, app-restart, health"
-
-# MUST end success so VS Code keeps the terminal open
-true
+echo "[dev] init at $(date +%T) — $PWD"
+# (do NOT `exit 1` here)
+# --- GitHub CLI: prefer user token over Codespaces token ---
+fix-gh() {
+  unset GITHUB_TOKEN GH_TOKEN
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    echo "[fix-gh] Not logged in. Running browser login…"
+    gh auth login --hostname github.com --web
+  fi
+  if ! gh auth status -h github.com | grep -q "project"; then
+    echo "[fix-gh] Adding scopes (project, repo, read:org)…"
+    gh auth refresh -h github.com -s project -s repo -s read:org
+  fi
+  echo "[fix-gh] gh is ready."
+}
