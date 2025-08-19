@@ -44,33 +44,43 @@ RAW="$(
     }' -f project="$PROJECT_ID"
 )"
 
-# Emit strict TSV: TITLE<TAB>STATUS  (STATUS may be empty)
-# (Pick the first value of the "Status" single-select, if present)
-jq -r '
-  .data.node.items.nodes[]
-  | {
-      title: .content.title,
-      status: (
-        [
-          .fieldValues.nodes[]?
-          | select(.__typename=="ProjectV2ItemFieldSingleSelectValue")
-          | select(.field.__typename=="ProjectV2SingleSelectField")
-          | select(.field.name=="Status")
-          | .name
-        ] | first // ""
-      )
-    }
-  | [.title, .status] | @tsv
-' <<<"$RAW" \
-| awk -F'\t' -v want="${1:-}" '
-  BEGIN {
-    # normalize filter names
-    if (want == "todo") want = "To Do";
-    else if (want == "backlog") want = "Backlog";
-    else if (want == "done") want = "Done";
-  }
-  {
-    title = $1; status = $2;
-    if (want == "" || status == want) print title "\t" status;
-  }
-'
+# Build TSV (TITLE<TAB>STATUS). STATUS may be empty.
+TSV_OUTPUT="$(
+  jq -r '
+    .data.node.items.nodes[]
+    | {
+        title: .content.title,
+        status: (
+          [
+            .fieldValues.nodes[]?
+            | select(.__typename=="ProjectV2ItemFieldSingleSelectValue")
+            | select(.field.__typename=="ProjectV2SingleSelectField")
+            | select(.field.name=="Status")
+            | .name
+          ] | first // ""
+        )
+      }
+    | [.title, .status] | @tsv
+  ' <<<"$RAW"
+)"
+
+# Filtering & printing with a friendly placeholder if empty
+FILTER_RAW="${1:-}"
+case "$FILTER_RAW" in
+  todo)     FILTER="To Do" ;;
+  backlog)  FILTER="Backlog" ;;
+  done)     FILTER="Done" ;;
+  *)        FILTER="" ;;
+esac
+
+if [[ -n "$FILTER" ]]; then
+  FILTERED="$(printf '%s\n' "$TSV_OUTPUT" | awk -F'\t' -v want="$FILTER" '$2==want { print }')"
+  if [[ -z "$FILTERED" ]]; then
+    echo "(no items in ${FILTER_RAW})"
+  else
+    printf '%s\n' "$FILTERED"
+  fi
+else
+  # no filter → print all
+  printf '%s\n' "$TSV_OUTPUT"
+fi
