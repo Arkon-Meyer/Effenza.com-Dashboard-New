@@ -29,6 +29,14 @@ timed() {
 
 mkdir -p debug
 
+# --- CI guardrails -----------------------------------------------------------
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    echo "::warning::gh is not authenticated. Make sure the workflow logs in with:
+      gh auth login --with-token <<< \"\${{ secrets.GH_PROJECT_TOKEN }}\""
+  fi
+fi
+
 # gh graphql with light retry + debug timestamps
 ghgql() {
   local tries=0 max=3 out rc
@@ -265,30 +273,31 @@ while :; do
     fi
 
     info "  -> ${title} ${human} (${type}/${state:-UNKNOWN}) → ${desired_name}"
-# Apply (unless DRY_RUN)
-if [[ -z "${DRY_RUN:-}" ]]; then
-  if [[ -z "${desired_opt:-}" ]]; then
-    echo "[warn] no optionId for ${title} #${number}; skipping"
-  else
-    debug "  ↳ updating ${itemId} to optionId='${desired_opt}' (field=${STATUS_FIELD_ID})"
-    timed "updateProjectV2ItemFieldValue" ghgql -f query='
-    mutation($project:ID!, $item:ID!, $field:ID!, $opt:String!) {
-      updateProjectV2ItemFieldValue(
-        input:{
-          projectId:$project,
-          itemId:$item,
-          fieldId:$field,
-          value:{ singleSelectOptionId:$opt }
-        }
-      ) { projectV2Item { id } }
-    }' \
-      -f project="$PROJECT_ID" \
-      -f item="$itemId" \
-      -f field="$STATUS_FIELD_ID" \
-      -f opt="$desired_opt" >/dev/null
-    UPDATED=$((UPDATED+1))
-  fi
-fi
+
+    # Apply (unless DRY_RUN)
+    if [[ -z "${DRY_RUN:-}" ]]; then
+      if [[ -z "${desired_opt:-}" ]]; then
+        echo "[warn] no optionId for ${title} #${number}; skipping"
+      else
+        debug "  ↳ updating ${itemId} to optionId='${desired_opt}' (field=${STATUS_FIELD_ID})"
+        timed "updateProjectV2ItemFieldValue" ghgql -f query='
+        mutation($project:ID!, $item:ID!, $field:ID!, $opt:String!) {
+          updateProjectV2ItemFieldValue(
+            input:{
+              projectId:$project,
+              itemId:$item,
+              fieldId:$field,
+              value:{ singleSelectOptionId:$opt }
+            }
+          ) { projectV2Item { id } }
+        }' \
+          -f project="$PROJECT_ID" \
+          -f item="$itemId" \
+          -f field="$STATUS_FIELD_ID" \
+          -f opt="$desired_opt" >/dev/null
+        UPDATED=$((UPDATED+1))
+      fi
+    fi
 
   done <<<"$MAP_JSON"
 
