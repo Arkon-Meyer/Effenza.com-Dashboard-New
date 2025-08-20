@@ -2,26 +2,22 @@ name: Project Auto Status
 
 on:
   issues:
-    types: [opened, reopened, closed, labeled, unlabeled, edited]
+    types: [opened, reopened, closed, labeled]
   pull_request:
     types: [opened, ready_for_review, synchronize, closed]
   workflow_dispatch:
   schedule:
-    - cron: '0 7 * * *' # daily @ 07:00 UTC
+    # Run daily at 07:00 UTC
+    - cron: '0 7 * * *'
 
 permissions:
   contents: read
   issues: write
   pull-requests: read
 
-concurrency:
-  group: project-auto-status-${{ github.ref || github.run_id }}
-  cancel-in-progress: false
-
 env:
   PROJECT_OWNER: Arkon-Meyer
   PROJECT_NUMBER: "2"
-  GH_TOKEN: ${{ secrets.GH_PAT }}   # force PAT instead of ephemeral GITHUB_TOKEN
 
 jobs:
   issue-events:
@@ -29,141 +25,65 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: gh version
-        run: gh --version
-      - name: Debug auth & validate PAT
+
+      # Handy: see scopes + who we are before auth
+      - name: Debug auth (pre)
         run: |
-          echo "🔑 Checking GitHub authentication"
+          set -x
+          gh --version
           gh auth status -h github.com || true
 
-          TOKEN="$(gh auth token)"
-          echo "🔎 Checking token scopes header..."
-          SCOPES=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/user -i | awk -F': ' '/^x-oauth-scopes:/ {print $2}' | tr -d '\r')
-          echo "x-oauth-scopes: ${SCOPES:-<none>}"
-          echo "---"
+      - name: Auth with PAT
+        env:
+          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+        run: |
+          test -n "$GH_PROJECT_TOKEN" || { echo "::error::Missing secrets.GH_PROJECT_TOKEN"; exit 1; }
+          gh auth login --with-token <<< "$GH_PROJECT_TOKEN"
 
-          USER_LOGIN=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/user | jq -r .login)
-          echo "👤 Active user: $USER_LOGIN"
-
-          if [ "$USER_LOGIN" != "Arkon-Meyer" ]; then
-            echo "::error::Token is for '$USER_LOGIN' but expected 'Arkon-Meyer'."
-            echo "::notice::To regenerate: Settings → Developer settings → Personal access tokens → Fine-grained token"
-            echo "::notice::Grant: repos (this repo), scopes: repo, project, workflow. Name it GH_PAT and add to repo secrets."
-            exit 1
-          fi
-
-          echo "$SCOPES" | grep -qi 'project' || {
-            echo "::error::Token missing 'project' scope."
-            echo "::notice::To regenerate: create a fine-grained PAT with 'project' and 'repo' access, save as GH_PAT."
-            exit 1
-          }
+      - name: Debug auth (post)
+        run: gh auth status -h github.com || true
 
       - name: Update project status (issues)
-        env:
-          DEBUG: ${{ inputs.debug || '' }}
-        run: |
-          chmod +x scripts/project-set-status.sh
-          scripts/project-set-status.sh
-      - name: Upload debug (optional)
-        if: env.DEBUG == '1'
-        uses: actions/upload-artifact@v4
-        with:
-          name: project-auto-status-debug-issues
-          path: |
-            debug/*.json
-          if-no-files-found: ignore
-          retention-days: 1
+        run: scripts/project-set-status.sh
 
   pr-events:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: gh version
-        run: gh --version
-      - name: Debug auth & validate PAT
+      - name: Debug auth (pre)
         run: |
-          echo "🔑 Checking GitHub authentication"
+          set -x
+          gh --version
           gh auth status -h github.com || true
-
-          TOKEN="$(gh auth token)"
-          SCOPES=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/user -i | awk -F': ' '/^x-oauth-scopes:/ {print $2}' | tr -d '\r')
-          USER_LOGIN=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/user | jq -r .login)
-          echo "x-oauth-scopes: ${SCOPES:-<none>}"
-          echo "👤 Active user: $USER_LOGIN"
-
-          if [ "$USER_LOGIN" != "Arkon-Meyer" ]; then
-            echo "::error::Token is for '$USER_LOGIN' but expected 'Arkon-Meyer'."
-            echo "::notice::To regenerate: Settings → Developer settings → Personal access tokens → Fine-grained token"
-            echo "::notice::Grant: repos (this repo), scopes: repo, project, workflow. Name it GH_PAT and add to repo secrets."
-            exit 1
-          fi
-
-          echo "$SCOPES" | grep -qi 'project' || {
-            echo "::error::Token missing 'project' scope."
-            echo "::notice::To regenerate: create a fine-grained PAT with 'project' and 'repo' access, save as GH_PAT."
-            exit 1
-          }
-
-      - name: Update project status (PRs)
+      - name: Auth with PAT
         env:
-          DEBUG: ${{ inputs.debug || '' }}
+          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
         run: |
-          chmod +x scripts/project-set-status.sh
-          scripts/project-set-status.sh
-      - name: Upload debug (optional)
-        if: env.DEBUG == '1'
-        uses: actions/upload-artifact@v4
-        with:
-          name: project-auto-status-debug-prs
-          path: |
-            debug/*.json
-          if-no-files-found: ignore
-          retention-days: 1
+          test -n "$GH_PROJECT_TOKEN" || { echo "::error::Missing secrets.GH_PROJECT_TOKEN"; exit 1; }
+          gh auth login --with-token <<< "$GH_PROJECT_TOKEN"
+      - name: Debug auth (post)
+        run: gh auth status -h github.com || true
+      - name: Update project status (PRs)
+        run: scripts/project-set-status.sh
 
   reconcile:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: gh version
-        run: gh --version
-      - name: Debug auth & validate PAT
+      - name: Debug auth (pre)
         run: |
-          echo "🔑 Checking GitHub authentication"
+          set -x
+          gh --version
           gh auth status -h github.com || true
-
-          TOKEN="$(gh auth token)"
-          SCOPES=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/user -i | awk -F': ' '/^x-oauth-scopes:/ {print $2}' | tr -d '\r')
-          USER_LOGIN=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/user | jq -r .login)
-          echo "x-oauth-scopes: ${SCOPES:-<none>}"
-          echo "👤 Active user: $USER_LOGIN"
-
-          if [ "$USER_LOGIN" != "Arkon-Meyer" ]; then
-            echo "::error::Token is for '$USER_LOGIN' but expected 'Arkon-Meyer'."
-            echo "::notice::To regenerate: Settings → Developer settings → Personal access tokens → Fine-grained token"
-            echo "::notice::Grant: repos (this repo), scopes: repo, project, workflow. Name it GH_PAT and add to repo secrets."
-            exit 1
-          fi
-
-          echo "$SCOPES" | grep -qi 'project' || {
-            echo "::error::Token missing 'project' scope."
-            echo "::notice::To regenerate: create a fine-grained PAT with 'project' and 'repo' access, save as GH_PAT."
-            exit 1
-          }
-
-      - name: Reconcile board (titles → Status)
+      - name: Auth with PAT
         env:
-          DEBUG: ${{ inputs.debug || '' }}
+          GH_PROJECT_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
         run: |
-          chmod +x scripts/project-set-status.sh
-          scripts/project-set-status.sh
-      - name: Upload debug (optional)
-        if: env.DEBUG == '1'
-        uses: actions/upload-artifact@v4
-        with:
-          name: project-auto-status-debug-reconcile
-          path: |
-            debug/*.json
-          if-no-files-found: ignore
-          retention-days: 1
+          test -n "$GH_PROJECT_TOKEN" || { echo "::error::Missing secrets.GH_PROJECT_TOKEN"; exit 1; }
+          gh auth login --with-token <<< "$GH_PROJECT_TOKEN"
+      - name: Debug auth (post)
+        run: gh auth status -h github.com || true
+      - name: Reconcile board (titles → Status)
+        run: scripts/project-set-status.sh
