@@ -1,0 +1,34 @@
+{
+  "projectOwner": "Arkon-Meyer",
+  "projectNumber": 2,
+  "projectRepo": "Effenza.com-Dashboard-New",
+
+  "explicit": [
+    { "issue": 27, "status": "Review" }
+  ],
+
+  "rules": {
+    "labelsToStatus": {
+      "Phase0": "To Do",
+      "phase:0": "To Do",
+      "Phase1": "Backlog",
+      "phase:1": "Backlog",
+      "Phase2": "Backlog",
+      "phase:2": "Backlog",
+      "Phase3": "In Progress",
+      "phase:3": "In Progress",
+      "review": "Review",
+      "qa": "Review",
+      "needs review": "Review"
+    },
+    "pullRequests": {
+      "draft": "Backlog",
+      "open": "In Progress",
+      "openWithReviewLabel": "Review",
+      "merged": "Done"
+    },
+    "issues": {
+      "closed": "Done"
+    }
+  }
+}
