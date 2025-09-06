@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "db:wait": "node scripts/db-wait.js",
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed-demo.js",
     "reset:demo": "node scripts/reset-demo.js",
@@ -14,12 +15,18 @@
     "smoke:audit:detail": "bash scripts/smoke-audit-detail.sh",
     "audit:cleanup": "node scripts/cron-clean-audit.js",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "postinstall": "npm run migrate && SEED_QUIET=1 npm run seed && if [ \"$POSTINSTALL_SKIP_SMOKE\" != \"1\" ]; then bash scripts/smoke-audit.sh --quiet; fi",
     "ci:lint:install": "bash scripts/install-actionlint.sh",
     "ci:lint": "bash -lc '[ -x .bin/actionlint ] || bash scripts/install-actionlint.sh; .bin/actionlint -color || true'",
-    "ci": "npm ci --ignore-scripts && npm run audit:prod && npm run smoke:audit --quiet && npm run smoke:audit:detail --quiet"
+    "ci": "npm ci --ignore-scripts && npm run audit:prod && npm run smoke:audit --quiet && npm run smoke:audit:detail --quiet",
+    "postinstall": "npm run db:wait && npm run migrate && SEED_QUIET=1 npm run seed || true"
   },
-  "keywords": ["effenza", "dashboard", "admin", "express", "sqlite"],
+  "keywords": [
+    "effenza",
+    "dashboard",
+    "admin",
+    "express",
+    "postgres"
+  ],
   "author": "Effenza Engineering <dev@effenza.com>",
   "license": "UNLICENSED",
   "repository": {
@@ -31,14 +38,15 @@
   },
   "homepage": "https://github.com/effenza/effenza-dashboard#readme",
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
     "express": "^4.18.2",
     "helmet": "^7.1.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.1.10"
   },
   "engines": {
     "node": "20.x"

@@ -136,7 +136,7 @@ router.get('/', rateLimit, (req, res) => {
       const params = [];
 
       // Coerce to datetime() on both sides to avoid TEXT comparison pitfalls
-      where.push('datetime(created_at) BETWEEN datetime(?) AND datetime(?)'); params.push(from, to);
+      where.push('created_at BETWEEN ?::timestamp AND ?::timestamp'); params.push(from, to);
       if (action)   { where.push('action = ?');   params.push(action); }
       if (resource) { where.push('resource = ?'); params.push(resource); }
       if (Array.isArray(scopeIds) && scopeIds.length > 0) {
@@ -156,7 +156,7 @@ router.get('/', rateLimit, (req, res) => {
 
       const rows = db.prepare(sql).all(...params);
 
-      const items = rows.map(r => {
+      const items = (Array.isArray(rows)?rows:(rows&&rows.rows)||[]).map(r => {
         if (!wantPII) {
           return {
             id: r.id, action: r.action, resource: r.resource,
@@ -210,7 +210,7 @@ router.get('/', rateLimit, (req, res) => {
     const params = [];
 
     // Coerce to datetime() on both sides
-    where.push('datetime(created_at) BETWEEN datetime(?) AND datetime(?)'); params.push(from, to);
+    where.push('created_at BETWEEN ?::timestamp AND ?::timestamp'); params.push(from, to);
     if (action)   { where.push('action = ?');   params.push(action); }
     if (resource) { where.push('resource = ?'); params.push(resource); }
 

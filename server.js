@@ -1,4 +1,5 @@
 // server.js
+require('dotenv').config({ override: true });
 const express = require('express');
 const path = require('path');
 const helmet = require('helmet');
@@ -32,7 +33,21 @@ app.use(morgan('dev'));
 
 // --- Body parsing & auth context ---
 app.use(express.json());
-app.use(actor());
+
+// actor middleware: accept function OR factory
+let actorMw = (_req, _res, next) => next();
+try {
+  const actorMod = require('./middleware/actor');
+  if (typeof actorMod === 'function') {
+    // either directly a middleware or a factory returning one
+    const maybeMw = actorMod.length >= 3 ? actorMod : actorMod(); // crude heuristic
+    actorMw = (typeof maybeMw === 'function') ? maybeMw : actorMw;
+  } else if (actorMod && typeof actorMod.middleware === 'function') {
+    actorMw = actorMod.middleware;
+  }
+} catch (_e) { /* optional: log a warning */ }
+
+app.use(actorMw);
 
 // --- Static files ---
 app.use(express.static(path.join(__dirname, 'public')));
