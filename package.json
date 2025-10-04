@@ -1,6 +1,6 @@
 {
   "name": "effenza-dashboard",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Effenza.com Admin Dashboard - MVP backend & UI",
   "main": "server.js",
   "type": "commonjs",
