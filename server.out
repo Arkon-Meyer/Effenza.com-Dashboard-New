@@ -1,7 +1,0 @@
-nohup: ignoring input
-
-> effenza-dashboard@1.0.0 start
-> node server.js
-
-[dotenv@17.2.1] injecting env (7) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
-❌ Port 3000 is already in use

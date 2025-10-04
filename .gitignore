@@ -25,3 +25,7 @@ Thumbs.db
 # Build / output artifacts
 dist/
 build/
+
+# backups & local logs
+*.bak
+server.out
