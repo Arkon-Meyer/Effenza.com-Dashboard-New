@@ -1,3 +1,4 @@
+const { audit: auditFile } = require('./logger');
 // routes/audit.js
 const express = require('express');
 const router = express.Router();

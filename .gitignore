@@ -29,3 +29,5 @@ build/
 # backups & local logs
 *.bak
 server.out
+
+logs/

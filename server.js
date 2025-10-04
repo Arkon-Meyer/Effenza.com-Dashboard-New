@@ -5,17 +5,22 @@ const path = require('path');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
+const logger = require('./utils/logger');
 
 const app = express();
 
-// --- Health endpoints (kept early so helpers can ping even if other code fails) ---
+// Health
 app.get('/healthz', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 app.get('/readyz',  (_req, res) => res.json({ status: 'ready', timestamp: new Date().toISOString() }));
 
-// --- DB (kept so routes can import it confidently) ---
-const db = require('./database');
+// --- Version endpoint ---
+const build = require('./utils/version');
+app.get('/version', (_req, res) => res.json(build));
 
-// --- Routers ---
+// Init DB pool (used by routes)
+require('./database');
+
+// Routers
 const groupRoutes       = require('./routes/groups');
 const usersRouter       = require('./routes/users');
 const membershipsRouter = require('./routes/memberships');
@@ -23,36 +28,32 @@ const orgUnitsRouter    = require('./routes/org-units');
 const assignmentsRouter = require('./routes/assignments');
 const auditRouter       = require('./routes/audit');
 
-// --- Middleware ---
-const actor = require('./middleware/actor'); // attaches req.actor if X-User-Id header is valid
-
-// --- Security / logging ---
-app.use(helmet());
-app.use(cors({ origin: '*' })); // TODO: restrict in prod
-app.use(morgan('dev'));
-
-// --- Body parsing & auth context ---
-app.use(express.json());
-
-// actor middleware: accept function OR factory
+// Optional legacy actor middleware (X-User-Id). JWT auth lives in routes/* where applied.
 let actorMw = (_req, _res, next) => next();
 try {
   const actorMod = require('./middleware/actor');
   if (typeof actorMod === 'function') {
-    // either directly a middleware or a factory returning one
-    const maybeMw = actorMod.length >= 3 ? actorMod : actorMod(); // crude heuristic
+    const maybeMw = actorMod.length >= 3 ? actorMod : actorMod();
     actorMw = (typeof maybeMw === 'function') ? maybeMw : actorMw;
   } else if (actorMod && typeof actorMod.middleware === 'function') {
     actorMw = actorMod.middleware;
   }
-} catch (_e) { /* optional: log a warning */ }
+} catch (_e) { /* ignore */ }
 
+// Security & logging
+app.use(helmet());
+app.use(cors({ origin: '*' })); // tighten in prod
+app.use(morgan('dev'));
+app.use(morgan('combined', { stream: logger.httpStream })); // to logs/http/
+
+// Body + actor
+app.use(express.json());
 app.use(actorMw);
 
-// --- Static files ---
+// Static
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- API routes ---
+// API
 app.use('/groups',       groupRoutes);
 app.use('/users',        usersRouter);
 app.use('/memberships',  membershipsRouter);
@@ -61,27 +62,28 @@ app.use('/assignments',  assignmentsRouter);
 app.use('/audit',        auditRouter);
 app.use(require('./routes/login'));
 
-// --- Admin dashboard ---
-app.get('/admin', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Simple root
+app.get('/', (_req, res) => res.send('Effenza Dashboard is up and running!'));
 
-// --- Root (simple welcome) ---
-app.get('/', (_req, res) => {
-  res.send('Effenza Dashboard is up and running!');
-});
-
-// --- JSON 404 + 500 handlers ---
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found' });
-});
-
+// 404 / 500
+app.use((req, res) => res.status(404).json({ error: 'Not Found' }));
 app.use((err, req, res, _next) => {
+  logger.app('express_error', { message: err.message, stack: err.stack });
   console.error('[ERROR]', err);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// --- Start server ---
+// Fatal handlers
+process.on('uncaughtException', (err) => {
+  logger.app('uncaughtException', { message: err.message, stack: err.stack });
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.app('unhandledRejection', { reason: (reason && reason.message) || String(reason) });
+  console.error('[unhandledRejection]', reason);
+});
+
+// Start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server is listening on port ${PORT}`);
@@ -93,3 +95,4 @@ app.listen(PORT, '0.0.0.0', () => {
     throw err;
   }
 });
+
