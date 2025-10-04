@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - MVP backend and UI for Effenza Dashboard.
 - Express server with CORS, Helmet, and logging middleware.
-- PostgreSQL integration via `pg`.
+- SQLite database integration via `better-sqlite3`.
 - Migration and seed scripts with idempotent org tree and role assignments.
 - REST routes:
   - `/users` for CRUD and `/users/me`.

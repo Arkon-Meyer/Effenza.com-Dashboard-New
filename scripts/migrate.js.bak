@@ -66,7 +66,7 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS permissions (
       id SERIAL PRIMARY KEY,
       action VARCHAR(50) NOT NULL,
-      resource VARCHAR(50) NOT NULL,
+      resource TEXT NOT NULL,
       CONSTRAINT uniq_perm UNIQUE(action, resource)
     );
   `);
@@ -101,7 +101,7 @@ async function migrate() {
       id SERIAL PRIMARY KEY,
       actor_id INTEGER,
       action VARCHAR(50) NOT NULL,
-      resource VARCHAR(50) NOT NULL,
+      resource TEXT NOT NULL,
       resource_id INTEGER,
       org_unit_id INTEGER,
       details JSONB,

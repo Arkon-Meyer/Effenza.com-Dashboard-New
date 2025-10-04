@@ -59,6 +59,7 @@ app.use('/memberships',  membershipsRouter);
 app.use('/org-units',    orgUnitsRouter);
 app.use('/assignments',  assignmentsRouter);
 app.use('/audit',        auditRouter);
+app.use(require('./routes/login'));
 
 // --- Admin dashboard ---
 app.get('/admin', (_req, res) => {

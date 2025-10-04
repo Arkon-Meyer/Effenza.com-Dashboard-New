@@ -1,10 +1,15 @@
 // routes/users.js
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const db = require('../database'); // Must export a pg.Pool or similar
 const { can } = require('../utils/authz');
 const { audit } = require('../utils/audit');
+const auth = require('../middleware/auth');
 
+// Apply JWT auth middleware to all routes
+router.use(auth);
+
+// --- Helpers ---
 const toInt = (v) => {
   const n = Number(v);
   return Number.isInteger(n) ? n : NaN;
@@ -17,8 +22,16 @@ const pickLimit = (v, dflt = 100, max = 500) => {
 const normEmail = (e) => String(e || '').trim().toLowerCase();
 const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-// -------------------- GET /users (admin only) --------------------
-router.get('/', (req, res) => {
+// -------------------- GET /users/me --------------------
+router.get("/me", (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: "Unauthorized: no user context" });
+  }
+  res.json(req.actor);
+});
+
+// -------------------- GET /users --------------------
+router.get('/', async (req, res) => {
   if (!req.actor || !can(req.actor, 'manage', 'users')) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -27,48 +40,46 @@ router.get('/', (req, res) => {
   const limit = pickLimit(req.query.limit);
   const offset = Math.max(toInt(req.query.offset) || 0, 0);
 
-  let sql = 'SELECT id, name, email FROM users';
-  const params = [];
+  const params = [limit, offset];
+  let sql = `SELECT id, name, email FROM users`;
   if (q) {
-    sql += ' WHERE (LOWER(name) LIKE ? OR LOWER(email) LIKE ?)';
+    sql += ` WHERE LOWER(name) LIKE $3 OR LOWER(email) LIKE $4`;
     params.push(`%${q.toLowerCase()}%`, `%${q.toLowerCase()}%`);
   }
-  sql += ' ORDER BY id LIMIT ? OFFSET ?';
-  params.push(limit, offset);
+  sql += ` ORDER BY id LIMIT $1 OFFSET $2`;
 
-  const rows = db.prepare(sql).all(...params);
-  res.json({ items: rows, limit, offset, q: q || null });
-});
-
-// -------------------- GET /users/me --------------------
-router.get('/me', (req, res) => {
-  if (!req.actor) {
-    return res.status(401).json({
-      error: 'Missing or invalid X-User-Id',
-      hint: 'Send a valid X-User-Id header matching a user in the database',
-    });
+  try {
+    const result = await db.query(sql, params);
+    res.json({ items: result.rows || [], limit, offset, q: q || null });
+  } catch (err) {
+    console.error("[GET /users] DB error:", err);
+    res.status(500).json({ error: "Database error", detail: err.message });
   }
-  res.json(req.actor);
 });
 
 // -------------------- GET /users/:id --------------------
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   const id = toInt(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
 
-  // If admin → can read any user; otherwise only self
   const isAdmin = req.actor && can(req.actor, 'manage', 'users');
-  if (!isAdmin && (!req.actor || req.actor.id !== id)) {
+  if (!isAdmin && req.actor.id !== id) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const row = db.prepare('SELECT id, name, email FROM users WHERE id=?').get(id);
-  if (!row) return res.status(404).json({ error: 'User not found' });
-  res.json(row);
+  try {
+    const result = await db.query('SELECT id, name, email FROM users WHERE id = $1', [id]);
+    const user = result.rows[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    console.error("[GET /users/:id] DB error:", err);
+    res.status(500).json({ error: "Database error", detail: err.message });
+  }
 });
 
-// -------------------- POST /users (admin) --------------------
-router.post('/', (req, res) => {
+// -------------------- POST /users (admin only) --------------------
+router.post('/', async (req, res) => {
   if (!req.actor || !can(req.actor, 'manage', 'users')) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -79,24 +90,25 @@ router.post('/', (req, res) => {
   if (!isEmail(email)) return res.status(400).json({ error: 'Invalid email format' });
 
   try {
-    const info = db
-      .prepare('INSERT INTO users (name, email) VALUES (?, ?)')
-      .run(name, email);
-
-    const created = { id: info.lastInsertRowid, name, email };
+    const result = await db.query(
+      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id',
+      [name, email]
+    );
+    const created = { id: result.rows[0].id, name, email };
     audit(req, { action: 'create', resource: 'users', resource_id: created.id, org_unit_id: null, details: created });
     res.status(201).set('Location', `/users/${created.id}`).json(created);
-  } catch (e) {
-    const msg = String(e.message || '');
-    if (msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('constraint')) {
+  } catch (err) {
+    const msg = String(err.message || '').toLowerCase();
+    if (msg.includes('unique') || msg.includes('constraint')) {
       return res.status(400).json({ error: 'Email must be unique' });
     }
-    res.status(400).json({ error: 'Unable to create user' });
+    console.error("[POST /users] DB error:", err);
+    res.status(500).json({ error: 'Unable to create user', detail: err.message });
   }
 });
 
-// -------------------- PUT /users/:id (admin) --------------------
-router.put('/:id', (req, res) => {
+// -------------------- PUT /users/:id (admin only) --------------------
+router.put('/:id', async (req, res) => {
   if (!req.actor || !can(req.actor, 'manage', 'users')) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -109,15 +121,13 @@ router.put('/:id', (req, res) => {
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
   if (!isEmail(email)) return res.status(400).json({ error: 'Invalid email format' });
 
-  const before = db.prepare('SELECT id, name, email FROM users WHERE id=?').get(id);
-  if (!before) return res.status(404).json({ error: 'User not found' });
-
   try {
-    const info = db
-      .prepare('UPDATE users SET name = ?, email = ? WHERE id = ?')
-      .run(name, email, id);
+    const beforeRes = await db.query('SELECT id, name, email FROM users WHERE id = $1', [id]);
+    const before = beforeRes.rows[0];
+    if (!before) return res.status(404).json({ error: 'User not found' });
 
-    if (!info.changes) return res.status(404).json({ error: 'User not found' });
+    const update = await db.query('UPDATE users SET name = $1, email = $2 WHERE id = $3', [name, email, id]);
+    if (!update.rowCount) return res.status(404).json({ error: 'User not found' });
 
     const after = { id, name, email };
     audit(req, {
@@ -125,20 +135,22 @@ router.put('/:id', (req, res) => {
       resource: 'users',
       resource_id: id,
       org_unit_id: null,
-      details: { before, after }
+      details: { before, after },
     });
+
     res.json(after);
-  } catch (e) {
-    const msg = String(e.message || '');
-    if (msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('constraint')) {
+  } catch (err) {
+    const msg = String(err.message || '').toLowerCase();
+    if (msg.includes('unique') || msg.includes('constraint')) {
       return res.status(400).json({ error: 'Email must be unique' });
     }
-    res.status(400).json({ error: 'Unable to update user' });
+    console.error("[PUT /users/:id] DB error:", err);
+    res.status(500).json({ error: 'Unable to update user', detail: err.message });
   }
 });
 
-// -------------------- DELETE /users/:id (admin) --------------------
-router.delete('/:id', (req, res) => {
+// -------------------- DELETE /users/:id (admin only) --------------------
+router.delete('/:id', async (req, res) => {
   if (!req.actor || !can(req.actor, 'manage', 'users')) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -146,18 +158,36 @@ router.delete('/:id', (req, res) => {
   const id = toInt(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
 
-  const before = db.prepare('SELECT id, name, email FROM users WHERE id=?').get(id);
-  if (!before) return res.status(404).json({ error: 'User not found' });
+  try {
+    const result = await db.query('SELECT id, name, email FROM users WHERE id = $1', [id]);
+    const before = result.rows[0];
+    if (!before) return res.status(404).json({ error: 'User not found' });
 
-  db.prepare('DELETE FROM users WHERE id=?').run(id);
-  audit(req, {
-    action: 'delete',
-    resource: 'users',
-    resource_id: id,
-    org_unit_id: null,
-    details: before
-  });
-  res.status(204).end();
+    await db.query('DELETE FROM users WHERE id = $1', [id]);
+    audit(req, {
+      action: 'delete',
+      resource: 'users',
+      resource_id: id,
+      org_unit_id: null,
+      details: before,
+    });
+
+    res.status(204).end();
+  } catch (err) {
+    console.error("[DELETE /users/:id] DB error:", err);
+    res.status(500).json({ error: 'Unable to delete user', detail: err.message });
+  }
+});
+
+// -------------------- GET /users/debug/all-users --------------------
+router.get('/debug/all-users', async (req, res) => {
+  try {
+    const result = await db.query('SELECT id, name, email FROM users');
+    res.json({ count: result.rows.length, users: result.rows });
+  } catch (err) {
+    console.error('[debug/all-users] DB error:', err);
+    res.status(500).json({ error: 'Database error', detail: err.message });
+  }
 });
 
 module.exports = router;

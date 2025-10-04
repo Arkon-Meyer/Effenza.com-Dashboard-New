@@ -5,7 +5,7 @@ Effenza Dashboard (MVP) — local dev setup.
 ## Prerequisites
 - Node.js 20.x
 - npm 9+
-- PostgreSQL via pg client
+- SQLite (bundled via better-sqlite3)
 
 ## Install
 ```bash

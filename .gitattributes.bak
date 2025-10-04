@@ -6,6 +6,7 @@
 *.db-shm  binary
 *.db-wal  binary
 *.sqlite  binary
+*.sqlite3 binary
 *.png     binary
 *.jpg     binary
 *.jpeg    binary

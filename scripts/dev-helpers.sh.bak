@@ -51,6 +51,8 @@ app_restart() {
     echo "[app-restart] Installing dependencies (skip smoke)..."
     POSTINSTALL_SKIP_SMOKE=1 npm install
 
+    echo "[app-restart] Rebuilding better-sqlite3..."
+    npm rebuild better-sqlite3 || true
 
     free_port
 
