@@ -1,3 +1,7 @@
+![Version](https://img.shields.io/github/v/tag/Arkon-Meyer/Effenza.com-Dashboard-New?label=version)
+![Last commit](https://img.shields.io/github/last-commit/Arkon-Meyer/Effenza.com-Dashboard-New)
+[![Secret scan](https://github.com/Arkon-Meyer/Effenza.com-Dashboard-New/actions/workflows/secret-lint.yml/badge.svg)](https://github.com/Arkon-Meyer/Effenza.com-Dashboard-New/actions/workflows/secret-lint.yml)
+
 Effenza Dashboard
 
 Admin Dashboard MVP (backend + minimal UI) for effenza.com
