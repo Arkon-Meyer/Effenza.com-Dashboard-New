@@ -18,12 +18,16 @@ npm start
 
 ⸻
 
-📑 Project Documentation
-	•	Dev quickstart and Codespaces workflow: docs/DEV_QUICKSTART.md
-	•	Security milestones: docs/security/SECURITY_COMPLIANCE_MILESTONES.md
-	•	Working checklist: docs/security/SECURITY_COMPLIANCE_TODO.md
-	•	Logging & retention: docs/README_LOGGING.md
+## 📑 Project Documentation
 
+- Dev quickstart and Codespaces workflow: [`docs/DEV_QUICKSTART.md`](docs/DEV_QUICKSTART.md)
+- Security milestones: [`docs/security/SECURITY_COMPLIANCE_MILESTONES.md`](docs/security/SECURITY_COMPLIANCE_MILESTONES.md)
+- Working checklist: [`docs/security/SECURITY_COMPLIANCE_TODO.md`](docs/security/SECURITY_COMPLIANCE_TODO.md)
+- Logging and retention policy: [`docs/README_LOGGING.md`](docs/README_LOGGING.md)
+- Continuous Integration (CI) overview: [`docs/README_CI.md`](docs/README_CI.md)
+
+**Principles:** zero-knowledge by default, data minimization, least privilege, defense in depth, full traceability.  
+Evidence, policies, and procedures live under `docs/security/` and are version-controlled.
 Principles: zero-knowledge by default, data minimization, least privilege, defense in depth, and full traceability.
 Evidence, policies, and procedures live under docs/security/ and are version-controlled.
 
