@@ -1,0 +1,6 @@
+id,event_ts,user_id,session_id,event_type,ip,user_agent,payload_json
+1,2025-11-15T07:48:25.081Z,15,,auth.login.success,127.0.0.1,curl/8.5.0,"{""email"":""demo.user@example.com""}"
+2,2025-11-15T07:48:25.146Z,15,,auth.login.bad_password,127.0.0.1,curl/8.5.0,"{""email"":""demo.user@example.com""}"
+3,2025-11-15T07:48:25.194Z,15,,auth.login.success,127.0.0.1,curl/8.5.0,"{""email"":""demo.user@example.com""}"
+4,2025-11-15T07:48:25.209Z,15,,auth.refresh.success,127.0.0.1,curl/8.5.0,"{""new_refresh_id"":""d47ff208-291d-4be3-9d25-66e2a28eff5e"",""old_refresh_id"":""7eb0b9b7-c7f2-4577-9d91-394a31229283""}"
+6,2025-11-15T07:56:12.871Z,15,,auth.login.success,127.0.0.1,curl/8.5.0,"{""email"":""demo.user@example.com""}"

@@ -38,6 +38,8 @@
   },
   "homepage": "https://github.com/effenza/effenza-dashboard#readme",
   "dependencies": {
+    "argon2": "^0.44.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^4.18.2",

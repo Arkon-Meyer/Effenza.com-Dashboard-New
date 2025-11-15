@@ -1,4 +1,3 @@
-// server.js
 require('dotenv').config({ override: true });
 const express = require('express');
 const path = require('path');
@@ -6,27 +5,22 @@ const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
 const logger = require('./utils/logger');
+const cookieParser = require('cookie-parser');
+const build = require('./utils/version');
+require('./database'); // init DB pool
 
 const app = express();
+
+// security hardening
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 // Health
 app.get('/healthz', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 app.get('/readyz',  (_req, res) => res.json({ status: 'ready', timestamp: new Date().toISOString() }));
 
-// --- Version endpoint ---
-const build = require('./utils/version');
+// Version
 app.get('/version', (_req, res) => res.json(build));
-
-// Init DB pool (used by routes)
-require('./database');
-
-// Routers
-const groupRoutes       = require('./routes/groups');
-const usersRouter       = require('./routes/users');
-const membershipsRouter = require('./routes/memberships');
-const orgUnitsRouter    = require('./routes/org-units');
-const assignmentsRouter = require('./routes/assignments');
-const auditRouter       = require('./routes/audit');
 
 // Optional legacy actor middleware (X-User-Id). JWT auth lives in routes/* where applied.
 let actorMw = (_req, _res, next) => next();
@@ -46,21 +40,30 @@ app.use(cors({ origin: '*' })); // tighten in prod
 app.use(morgan('dev'));
 app.use(morgan('combined', { stream: logger.httpStream })); // to logs/http/
 
-// Body + actor
+// Body + cookies + actor
 app.use(express.json());
+app.use(cookieParser());
 app.use(actorMw);
 
 // Static
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API
-app.use('/groups',       groupRoutes);
-app.use('/users',        usersRouter);
-app.use('/memberships',  membershipsRouter);
-app.use('/org-units',    orgUnitsRouter);
-app.use('/assignments',  assignmentsRouter);
-app.use('/audit',        auditRouter);
-app.use(require('./routes/login'));
+// Routes
+app.use('/login', require('./routes/login'));
+app.use('/auth', require('./routes/auth'));
+
+app.use('/groups',       require('./routes/groups'));
+
+// GDPR export first, unprotected by JWT for now (uses X-User-Id / req.actor)
+app.use('/users',        require('./routes/user_audit_export'));
+
+// Existing users router with JWT protection
+app.use('/users',        require('./routes/users'));
+
+app.use('/memberships',  require('./routes/memberships'));
+app.use('/org-units',    require('./routes/org-units'));
+app.use('/assignments',  require('./routes/assignments'));
+app.use('/audit',        require('./routes/audit'));
 
 // Simple root
 app.get('/', (_req, res) => res.send('Effenza Dashboard is up and running!'));
@@ -95,4 +98,3 @@ app.listen(PORT, '0.0.0.0', () => {
     throw err;
   }
 });
-

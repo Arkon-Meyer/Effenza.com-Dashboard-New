@@ -1,0 +1,55 @@
+name: Audit Chain Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  audit-chain-verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: effenza
+          POSTGRES_PASSWORD: effenza
+          POSTGRES_DB: effenza
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U effenza -d effenza"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: effenza
+      POSTGRES_USER: effenza
+      POSTGRES_PASSWORD: effenza
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres (reuse local db-wait.js)
+        run: node scripts/db-wait.js
+
+      - name: Run audit_log migration
+        run: node scripts/migrate_audit_log.js
+
+      - name: Verify audit hash chain
+        run: node scripts/verify_audit_chain.js
