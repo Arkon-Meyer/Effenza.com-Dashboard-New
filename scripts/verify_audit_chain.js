@@ -39,6 +39,7 @@ async function getUserColumn() {
 function computeHash(prevHash, row) {
   const h = crypto.createHash('sha256');
 
+  // chain previous hash
   h.update(String(prevHash || ''));
 
   const payload = {
@@ -85,12 +86,13 @@ async function main() {
   }
 
   let prevHash = null;
+
   for (const row of rows) {
     const expectedPrev = prevHash || null;
 
     if ((row.prev_hash || null) !== expectedPrev) {
       console.error(
-        \`❌ Hash mismatch at id=\${row.id}: prev_hash=\${row.prev_hash} expected=\${expectedPrev}\`
+        `❌ Hash mismatch at id=${row.id}: prev_hash=${row.prev_hash} expected=${expectedPrev}`
       );
       process.exit(1);
     }
@@ -98,7 +100,7 @@ async function main() {
     const computed = computeHash(prevHash, row);
     if (row.curr_hash !== computed) {
       console.error(
-        \`❌ Hash mismatch at id=\${row.id}: stored curr_hash does not match recomputed hash\`
+        `❌ Hash mismatch at id=${row.id}: stored curr_hash does not match recomputed hash`
       );
       process.exit(1);
     }
@@ -106,7 +108,7 @@ async function main() {
     prevHash = row.curr_hash;
   }
 
-  console.log(\`✅ Audit chain verification PASSED for \${rows.length} events.\`);
+  console.log(`✅ Audit chain verification PASSED for ${rows.length} events.`);
   process.exit(0);
 }
 
