@@ -6,7 +6,10 @@ const { query } = require('../database');
 require('dotenv').config({ override: true, quiet: true });
 
 async function migrate() {
+
+  // -----------------------------
   // Users / basic entities
+  // -----------------------------
   await query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -24,7 +27,7 @@ async function migrate() {
     );
   `);
 
-  // Memberships (user <-> group)
+  // Memberships
   await query(`
     CREATE TABLE IF NOT EXISTS memberships (
       id SERIAL PRIMARY KEY,
@@ -38,7 +41,7 @@ async function migrate() {
       ON memberships(user_id, group_id);
   `);
 
-  // Org units (tree)
+  // Org units
   await query(`
     CREATE TABLE IF NOT EXISTS org_units (
       id SERIAL PRIMARY KEY,
@@ -50,13 +53,13 @@ async function migrate() {
       deleted_at TIMESTAMPTZ
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id)`);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_orgunit_org_parent_type_name
       ON org_units (org_id, COALESCE(parent_id, 0), type, name);
   `);
 
-  // RBAC
+  // RBAC tables
   await query(`
     CREATE TABLE IF NOT EXISTS roles (
       id SERIAL PRIMARY KEY,
@@ -87,54 +90,44 @@ async function migrate() {
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-      org_unit_id INTEGER REFERENCES org_units(id) ON DELETE CASCADE,
+      org_unit_id INTEGER REFERENCES org_units(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS idx_assignments_user ON assignments(user_id);`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_assignments_org  ON assignments(org_unit_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_assign_user ON assignments(user_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_assign_org  ON assignments(org_unit_id)`);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_assignment_user_role_scope
       ON assignments(user_id, role_id, COALESCE(org_unit_id, 0));
   `);
 
-  // ------------------------------------------------------------------------
-  // Audit: GDPR / CPRA user-level, tamper-evident hash chain
-  // ------------------------------------------------------------------------
+
+  // =====================================================
+  // 🟩 AUDIT LOG (FINAL HASH-CHAIN SCHEMA)
+  // =====================================================
   await query(`
     CREATE TABLE IF NOT EXISTS audit_log (
       id BIGSERIAL PRIMARY KEY,
-
-      -- who did the action (actor) vs who it is about (user)
-      actor_id   INTEGER,
-      user_id    INTEGER,
-
-      -- optional logical session identifier
-      session_id UUID,
-
-      -- classification
-      event_type TEXT NOT NULL,
-
-      -- when it happened
       event_ts   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-      -- context
+      user_id    INTEGER,
+      session_id UUID,
+      event_type TEXT NOT NULL,
       ip         TEXT,
       user_agent TEXT,
       payload    JSONB,
-
-      -- hash chain
       prev_hash  TEXT,
       curr_hash  TEXT
     );
   `);
 
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_ts   ON audit_log(event_ts);`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_id    ON audit_log(user_id);`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_actor_id   ON audit_log(actor_id);`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_ts ON audit_log(event_ts)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_id  ON audit_log(user_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event    ON audit_log(event_type)`);
 
-  // Seed roles + permissions (idempotent, PG-style upserts)
+
+  // -----------------------------
+  // Seed RBAC (idempotent)
+  // -----------------------------
   await query(`
     INSERT INTO permissions (action, resource) VALUES
       ('manage','users'),
