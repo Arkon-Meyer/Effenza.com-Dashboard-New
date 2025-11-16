@@ -33,7 +33,10 @@ async function migrate() {
       role VARCHAR(50) NOT NULL
     );
   `);
-  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_membership ON memberships(user_id, group_id);`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_membership
+      ON memberships(user_id, group_id);
+  `);
 
   // Org units (tree)
   await query(`
@@ -96,18 +99,31 @@ async function migrate() {
   `);
 
   // ------------------------------------------------------------------------
-  // Audit: GDPR / CPRA user-level, with hash chain
+  // Audit: GDPR / CPRA user-level, tamper-evident hash chain
   // ------------------------------------------------------------------------
   await query(`
     CREATE TABLE IF NOT EXISTS audit_log (
       id BIGSERIAL PRIMARY KEY,
-      event_ts   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      -- who did the action (actor) vs who it is about (user)
+      actor_id   INTEGER,
       user_id    INTEGER,
+
+      -- optional logical session identifier
       session_id UUID,
+
+      -- classification
       event_type TEXT NOT NULL,
+
+      -- when it happened
+      event_ts   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      -- context
       ip         TEXT,
       user_agent TEXT,
       payload    JSONB,
+
+      -- hash chain
       prev_hash  TEXT,
       curr_hash  TEXT
     );
@@ -115,6 +131,7 @@ async function migrate() {
 
   await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_ts   ON audit_log(event_ts);`);
   await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_id    ON audit_log(user_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_actor_id   ON audit_log(actor_id);`);
   await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);`);
 
   // Seed roles + permissions (idempotent, PG-style upserts)
