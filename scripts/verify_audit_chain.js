@@ -10,12 +10,28 @@ async function getTimestampColumn() {
     FROM information_schema.columns
     WHERE table_name = 'audit_log'
       AND column_name IN ('event_ts', 'created_at')
-    ORDER BY column_name = 'event_ts' DESC
+    ORDER BY (column_name = 'event_ts') DESC
     LIMIT 1;
   `;
   const res = await db.query(sql);
   if (!res.rows.length) {
     throw new Error('No timestamp column (event_ts/created_at) found on audit_log');
+  }
+  return res.rows[0].column_name;
+}
+
+async function getUserColumn() {
+  const sql = `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'audit_log'
+      AND column_name IN ('user_id', 'actor_id')
+    ORDER BY (column_name = 'user_id') DESC
+    LIMIT 1;
+  `;
+  const res = await db.query(sql);
+  if (!res.rows.length) {
+    throw new Error('No user column (user_id/actor_id) found on audit_log');
   }
   return res.rows[0].column_name;
 }
@@ -45,12 +61,13 @@ function computeHash(prevHash, row) {
 
 async function main() {
   const tsCol = await getTimestampColumn();
+  const userCol = await getUserColumn();
 
   const { rows } = await db.query(`
     SELECT
       id,
-      ${tsCol} AS event_ts,
-      user_id,
+      ${tsCol}   AS event_ts,
+      ${userCol} AS user_id,
       session_id,
       event_type,
       ip,
@@ -73,7 +90,7 @@ async function main() {
 
     if ((row.prev_hash || null) !== expectedPrev) {
       console.error(
-        `❌ Hash mismatch at id=${row.id}: prev_hash=${row.prev_hash} expected=${expectedPrev}`
+        \`❌ Hash mismatch at id=\${row.id}: prev_hash=\${row.prev_hash} expected=\${expectedPrev}\`
       );
       process.exit(1);
     }
@@ -81,7 +98,7 @@ async function main() {
     const computed = computeHash(prevHash, row);
     if (row.curr_hash !== computed) {
       console.error(
-        `❌ Hash mismatch at id=${row.id}: stored curr_hash does not match recomputed hash`
+        \`❌ Hash mismatch at id=\${row.id}: stored curr_hash does not match recomputed hash\`
       );
       process.exit(1);
     }
@@ -89,7 +106,7 @@ async function main() {
     prevHash = row.curr_hash;
   }
 
-  console.log(`✅ Audit chain verification PASSED for ${rows.length} events.`);
+  console.log(\`✅ Audit chain verification PASSED for \${rows.length} events.\`);
   process.exit(0);
 }
 
