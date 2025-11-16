@@ -2,13 +2,16 @@ name: Audit Chain Verification
 
 on:
   push:
-    branches: [ main ]
+    branches: ["main"]
   pull_request:
-    branches: [ main ]
+    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   audit-chain-verify:
+    name: audit-chain-verify
     runs-on: ubuntu-latest
+    timeout-minutes: 6
 
     services:
       postgres:
@@ -26,30 +29,31 @@ jobs:
           --health-retries=5
 
     env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
       POSTGRES_DB: effenza
       POSTGRES_USER: effenza
       POSTGRES_PASSWORD: effenza
       NODE_ENV: test
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Wait for Postgres (reuse local db-wait.js)
+      - name: Wait for Postgres
         run: node scripts/db-wait.js
 
       - name: Run audit_log migration
         run: node scripts/migrate_audit_log.js
 
-      - name: Verify audit hash chain
+      - name: Verify audit hash-chain
         run: node scripts/verify_audit_chain.js
