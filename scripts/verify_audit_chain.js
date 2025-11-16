@@ -1,61 +1,99 @@
+#!/usr/bin/env node
+require('dotenv').config({ override: true });
+
+const crypto = require('crypto');
 const db = require('../database');
-const { computeHash } = require('../utils/audit');
 
-(async () => {
-  try {
-    const res = await db.query(`
-      SELECT id, event_ts, user_id, session_id, event_type, ip, user_agent, payload, prev_hash, hash
-      FROM audit_log
-      ORDER BY id ASC
-    `);
+async function getTimestampColumn() {
+  const sql = `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'audit_log'
+      AND column_name IN ('event_ts', 'created_at')
+    ORDER BY column_name = 'event_ts' DESC
+    LIMIT 1;
+  `;
+  const res = await db.query(sql);
+  if (!res.rows.length) {
+    throw new Error('No timestamp column (event_ts/created_at) found on audit_log');
+  }
+  return res.rows[0].column_name;
+}
 
-    const rows = res.rows || [];
-    if (rows.length === 0) {
-      console.log('ℹ️  audit_log is empty – nothing to verify.');
-      process.exit(0);
-    }
+function computeHash(prevHash, row) {
+  const h = crypto.createHash('sha256');
 
-    let ok = true;
-    let prevStoredHash = null;
+  h.update(String(prevHash || ''));
 
-    for (const row of rows) {
-      // Check prev_hash linkage
-      if (row.id === rows[0].id) {
-        // First row: prev_hash must be null
-        if (row.prev_hash) {
-          console.error(`❌ Chain break at id=${row.id}: first row has non-null prev_hash`);
-          ok = false;
-          break;
-        }
-      } else {
-        // Subsequent rows: prev_hash must equal previous row's hash
-        if (!row.prev_hash || !Buffer.isBuffer(row.prev_hash) || !row.prev_hash.equals(prevStoredHash)) {
-          console.error(`❌ Chain break at id=${row.id}: prev_hash does not match previous hash`);
-          ok = false;
-          break;
-        }
-      }
+  const payload = {
+    id: row.id,
+    user_id: row.user_id,
+    session_id: row.session_id,
+    event_type: row.event_type,
+    event_ts:
+      row.event_ts instanceof Date
+        ? row.event_ts.toISOString()
+        : String(row.event_ts),
+    ip: row.ip || null,
+    user_agent: row.user_agent || null,
+    payload: row.payload || {},
+  };
 
-      // Recompute hash from the DB row
-      const expectedHash = computeHash(row.prev_hash, row);
-      if (!row.hash || !Buffer.isBuffer(row.hash) || !row.hash.equals(expectedHash)) {
-        console.error(`❌ Hash mismatch at id=${row.id}: stored hash does not match recomputed hash`);
-        ok = false;
-        break;
-      }
+  h.update(JSON.stringify(payload));
+  return h.digest('hex');
+}
 
-      prevStoredHash = row.hash;
-    }
+async function main() {
+  const tsCol = await getTimestampColumn();
 
-    if (!ok) {
-      console.error('❌ Audit chain verification FAILED.');
+  const { rows } = await db.query(`
+    SELECT
+      id,
+      ${tsCol} AS event_ts,
+      user_id,
+      session_id,
+      event_type,
+      ip,
+      user_agent,
+      payload,
+      prev_hash,
+      curr_hash
+    FROM audit_log
+    ORDER BY id ASC
+  `);
+
+  if (!rows.length) {
+    console.log('ℹ️  audit_log is empty – nothing to verify.');
+    process.exit(0);
+  }
+
+  let prevHash = null;
+  for (const row of rows) {
+    const expectedPrev = prevHash || null;
+
+    if ((row.prev_hash || null) !== expectedPrev) {
+      console.error(
+        `❌ Hash mismatch at id=${row.id}: prev_hash=${row.prev_hash} expected=${expectedPrev}`
+      );
       process.exit(1);
     }
 
-    console.log(`✅ Audit chain verification PASSED for ${rows.length} events.`);
-    process.exit(0);
-  } catch (err) {
-    console.error('❌ Error during audit chain verification:', err.message);
-    process.exit(1);
+    const computed = computeHash(prevHash, row);
+    if (row.curr_hash !== computed) {
+      console.error(
+        `❌ Hash mismatch at id=${row.id}: stored curr_hash does not match recomputed hash`
+      );
+      process.exit(1);
+    }
+
+    prevHash = row.curr_hash;
   }
-})();
+
+  console.log(`✅ Audit chain verification PASSED for ${rows.length} events.`);
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error('❌ Error during audit chain verification:', err.message);
+  process.exit(1);
+});
