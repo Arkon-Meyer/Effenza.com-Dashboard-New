@@ -23,7 +23,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
       - name: actionlint
         uses: reviewdog/action-actionlint@v1
         with:
@@ -67,14 +68,13 @@ jobs:
           --health-retries=5
 
     env:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: "5432"
       POSTGRES_DB: effenza
       POSTGRES_USER: effenza
       POSTGRES_PASSWORD: effenza
       NODE_ENV: test
       POSTINSTALL_SKIP_SMOKE: "1"
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -116,7 +116,7 @@ jobs:
       BASE_URL: "http://127.0.0.1:3000"
       CI: "true"
       POSTINSTALL_SKIP_SMOKE: "1"
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: "5432"
       POSTGRES_DB: effenza
       POSTGRES_USER: effenza
@@ -178,7 +178,7 @@ jobs:
 
     env:
       POSTINSTALL_SKIP_SMOKE: "1"
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: "5432"
       POSTGRES_DB: effenza
       POSTGRES_USER: effenza
