@@ -37,11 +37,8 @@ jobs:
       NODE_ENV: test
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -52,8 +49,8 @@ jobs:
       - name: Wait for Postgres
         run: node scripts/db-wait.js
 
-      - name: Run audit_log migration
-        run: node scripts/migrate_audit_log.js
+      - name: Run all migrations
+        run: npm run migrate
 
       - name: Verify audit hash-chain
         run: node scripts/verify_audit_chain.js
