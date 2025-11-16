@@ -40,8 +40,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
       - name: Clean install (no lifecycle scripts)
         run: npm ci --ignore-scripts
 
@@ -50,19 +50,42 @@ jobs:
     needs: install_lockfile
     runs-on: ubuntu-latest
     timeout-minutes: 6
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: effenza
+          POSTGRES_PASSWORD: effenza
+          POSTGRES_DB: effenza
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U effenza -d effenza"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: effenza
+      POSTGRES_USER: effenza
+      POSTGRES_PASSWORD: effenza
+      NODE_ENV: test
+      POSTINSTALL_SKIP_SMOKE: "1"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
       - name: Install deps (allow scripts)
-        env:
-          POSTINSTALL_SKIP_SMOKE: '1'
         run: npm ci
+      - name: Wait for Postgres
+        run: node scripts/db-wait.js
       - name: Run migrations + seed (idempotent)
-        env:
-          POSTINSTALL_SKIP_SMOKE: '1'
         run: |
           npm run migrate
           npm run seed
@@ -72,20 +95,45 @@ jobs:
     needs: migrate_seed
     runs-on: ubuntu-latest
     timeout-minutes: 12
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: effenza
+          POSTGRES_PASSWORD: effenza
+          POSTGRES_DB: effenza
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U effenza -d effenza"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     env:
       PORT: "3000"
       BASE_URL: "http://127.0.0.1:3000"
       CI: "true"
       POSTINSTALL_SKIP_SMOKE: "1"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: effenza
+      POSTGRES_USER: effenza
+      POSTGRES_PASSWORD: effenza
+      NODE_ENV: test
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
       - run: npm ci
         env:
-          POSTINSTALL_SKIP_SMOKE: '1'
+          POSTINSTALL_SKIP_SMOKE: "1"
+      - name: Wait for Postgres
+        run: node scripts/db-wait.js
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
@@ -112,16 +160,42 @@ jobs:
     needs: migrate_seed
     runs-on: ubuntu-latest
     timeout-minutes: 6
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: effenza
+          POSTGRES_PASSWORD: effenza
+          POSTGRES_DB: effenza
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U effenza -d effenza"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      POSTINSTALL_SKIP_SMOKE: "1"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: effenza
+      POSTGRES_USER: effenza
+      POSTGRES_PASSWORD: effenza
+      NODE_ENV: test
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      # allow scripts so server can load the native module
+          node-version: "20"
+          cache: "npm"
       - run: npm ci
         env:
-          POSTINSTALL_SKIP_SMOKE: '1'
+          POSTINSTALL_SKIP_SMOKE: "1"
+      - name: Wait for Postgres
+        run: node scripts/db-wait.js
       - name: Start server in background & wait for /healthz
         run: |
           nohup node server.js > server.log 2>&1 & echo $! > server.pid
