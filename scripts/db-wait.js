@@ -3,6 +3,7 @@ require('dotenv').config({ override: true });
 
 const { Client } = require('pg');
 
+// Default to localhost; CI will also talk to the Postgres service via 127.0.0.1:5432
 const HOST = process.env.POSTGRES_HOST || '127.0.0.1';
 const PORT = Number(process.env.POSTGRES_PORT || 5432);
 const DB   = process.env.POSTGRES_DB   || 'effenza';
@@ -50,7 +51,9 @@ async function tryConnect() {
       console.log('[db-wait] DB ready');
       process.exit(0);
     }
-    console.log(`[db-wait] attempt ${attempt}/${MAX_ATTEMPTS} failed – retrying in ${DELAY_MS}ms`);
+    console.log(
+      `[db-wait] attempt ${attempt}/${MAX_ATTEMPTS} failed – retrying in ${DELAY_MS}ms`
+    );
     await sleep(DELAY_MS);
   }
 
