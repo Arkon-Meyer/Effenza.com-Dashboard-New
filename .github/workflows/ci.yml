@@ -75,6 +75,7 @@ jobs:
       POSTGRES_PASSWORD: effenza
       NODE_ENV: test
       POSTINSTALL_SKIP_SMOKE: "1"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

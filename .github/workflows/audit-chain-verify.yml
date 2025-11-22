@@ -35,6 +35,7 @@ jobs:
       POSTGRES_USER: effenza
       POSTGRES_PASSWORD: effenza
       NODE_ENV: test
+      POSTINSTALL_SKIP_SMOKE: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -42,15 +43,11 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-
-      - name: Install dependencies
+      - name: Install deps
         run: npm ci
-
       - name: Wait for Postgres
         run: node scripts/db-wait.js
-
       - name: Run all migrations
         run: npm run migrate
-
       - name: Verify audit hash-chain
         run: node scripts/verify_audit_chain.js
