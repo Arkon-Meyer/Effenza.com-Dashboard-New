@@ -1,36 +1,41 @@
+#!/usr/bin/env node
+// scripts/seed_demo_user.js
+'use strict';
+
+require('dotenv').config({ override: true, quiet: true });
+const argon2 = require('argon2');
 const db = require('../database');
-const { hashPassword } = require('../utils/passwords');
 
-(async () => {
-  try {
-    // Ensure password_hash column exists
-    await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text");
+async function main() {
+  const email = process.env.DEMO_USER_EMAIL || 'demo.user@example.com';
+  const password = process.env.DEMO_USER_PASSWORD || 'test';
+  const name = process.env.DEMO_USER_NAME || 'Demo User';
 
-    const email = 'demo.user@example.com';
-    const name = 'Demo User';
-    const plain = 'test';
+  const passwordHash = await argon2.hash(password, {
+    type: argon2.argon2id,
+    memoryCost: 19456,
+    timeCost: 2,
+    parallelism: 1
+  });
 
-    const hash = await hashPassword(plain);
+  const { rows } = await db.query(
+    `
+    INSERT INTO users (name, email, password_hash, org_id)
+    VALUES ($1, $2, $3, 1)
+    ON CONFLICT (email)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      password_hash = EXCLUDED.password_hash
+    RETURNING id, email;
+    `,
+    [name, email, passwordHash]
+  );
 
-    // Unique index on email (safe if already exists)
-    try {
-      await db.query("CREATE UNIQUE INDEX IF NOT EXISTS users_email_uidx ON users(lower(email))");
-    } catch (_) {}
+  console.log('✅ Seeded demo Argon2id user:', rows[0]);
+  process.exit(0);
+}
 
-    // Upsert demo user
-    const sql = `
-      INSERT INTO users (name, email, password_hash)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (email) DO UPDATE
-      SET name = EXCLUDED.name,
-          password_hash = EXCLUDED.password_hash
-      RETURNING id, email
-    `;
-    const r = await db.query(sql, [name, email, hash]);
-    console.log('✅ Seeded demo Argon2id user:', r.rows[0]);
-    process.exit(0);
-  } catch (e) {
-    console.error('❌ seed failed:', e.message);
-    process.exit(1);
-  }
-})();
+main().catch((err) => {
+  console.error('❌ seed_demo_user:', err.message || err);
+  process.exit(1);
+});

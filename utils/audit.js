@@ -1,93 +1,142 @@
+// utils/audit.js
+'use strict';
+
 const crypto = require('crypto');
 const db = require('../database');
+const logger = require('./logger');
 
 /**
- * Build a canonical event object based on how the row is stored in DB.
- * This avoids differences between "insert-time" JSON and "read-back" JSON.
+ * Canonical audit-chain payload builder.
+ * This MUST stay in lockstep with scripts/verify_audit_chain.js
  */
-function canonicalEvent(row) {
-  // Normalize timestamp to ISO string
-  const ts = row.event_ts instanceof Date
-    ? row.event_ts.toISOString()
-    : new Date(row.event_ts).toISOString();
-
+function buildChainPayload(rowLike) {
   return {
-    event_ts: ts,
-    user_id: row.user_id ?? null,
-    session_id: row.session_id ?? null,
-    event_type: row.event_type,
-    ip: row.ip ?? null,
-    user_agent: row.user_agent ?? null,
-    payload: row.payload || {}
+    user_id: rowLike.user_id ?? null,
+    session_id: rowLike.session_id ?? null,
+    event_type: rowLike.event_type,
+    // event_ts must be a string in ISO8601 form for deterministic hashing
+    event_ts:
+      rowLike.event_ts instanceof Date
+        ? rowLike.event_ts.toISOString()
+        : String(rowLike.event_ts),
+    ip: rowLike.ip || null,
+    user_agent: rowLike.user_agent || null,
+    payload: rowLike.payload || {},
   };
 }
 
 /**
- * Compute hash for a DB row + its prev_hash.
+ * Compute the chained SHA-256 over:
+ *   prev_hash (or '' for first event) + JSON.stringify(chainPayload)
  */
-function computeHash(prevHashBuf, row) {
-  const ordered = canonicalEvent(row);
-  const json = JSON.stringify(ordered);
+function computeAuditHash(prevHash, rowLike) {
   const h = crypto.createHash('sha256');
-  if (prevHashBuf) h.update(prevHashBuf);
-  h.update(json, 'utf8');
-  return h.digest(); // Buffer for bytea
+  const chainPayload = buildChainPayload(rowLike);
+
+  h.update(String(prevHash || ''));
+  h.update(JSON.stringify(chainPayload));
+
+  return h.digest('hex');
 }
 
 /**
- * Append a new audit event to the chain:
- *  1. Look up last hash
- *  2. Insert row with prev_hash (but no hash yet)
- *  3. Read that row back from DB
- *  4. Compute hash from the DB row
- *  5. UPDATE hash column
+ * Append an audit event with hash-chain fields.
+ *
+ * @param {Object} opts
+ * @param {number|null} opts.userId
+ * @param {string|null} opts.sessionId
+ * @param {string} opts.eventType
+ * @param {string|null} opts.ip
+ * @param {string|null} opts.userAgent
+ * @param {Object} [opts.payload]
  */
-async function appendAuditEvent({ userId, sessionId, eventType, ip, userAgent, payload }) {
-  // 1) Last hash
-  const last = await db.query('SELECT id, hash FROM audit_log ORDER BY id DESC LIMIT 1');
-  const prevHash = last.rows[0]?.hash || null;
+async function appendAuditEvent({
+  userId = null,
+  sessionId = null,
+  eventType,
+  ip = null,
+  userAgent = null,
+  payload = {},
+}) {
+  if (!eventType) {
+    throw new Error('appendAuditEvent: eventType is required');
+  }
 
-  // 2) Insert row without hash, but with prev_hash
-  const eventTs = new Date().toISOString();
-  const insert = await db.query(
-    `INSERT INTO audit_log
-       (event_ts, user_id, session_id, event_type, ip, user_agent, payload, prev_hash)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     RETURNING id`,
-    [
+  // 1. Get previous hash in chain (by id ascending)
+  const prevRes = await db.query(
+    `SELECT curr_hash
+       FROM audit_log
+      ORDER BY id DESC
+      LIMIT 1`
+  );
+
+  const prevHash = prevRes.rows.length ? prevRes.rows[0].curr_hash : null;
+
+  // 2. We control event_ts to make hashing deterministic
+  const eventTs = new Date();
+
+  // 3. Build chain payload and compute new hash
+  const chainRow = {
+    user_id: userId,
+    session_id: sessionId,
+    event_type: eventType,
+    event_ts: eventTs.toISOString(),
+    ip,
+    user_agent: userAgent,
+    payload,
+  };
+
+  const currHash = computeAuditHash(prevHash, chainRow);
+
+  // 4. Insert row with prev_hash + curr_hash
+  const insertSql = `
+    INSERT INTO audit_log (
+      event_ts,
+      user_id,
+      session_id,
+      event_type,
+      ip,
+      user_agent,
+      payload,
+      prev_hash,
+      curr_hash
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    RETURNING id
+  `;
+
+  try {
+    const { rows } = await db.query(insertSql, [
       eventTs,
-      userId ?? null,
-      sessionId ?? null,
+      userId,
+      sessionId,
       eventType,
-      ip || null,
-      userAgent || null,
-      payload || {},
-      prevHash
-    ]
-  );
+      ip,
+      userAgent,
+      payload,
+      prevHash,
+      currHash,
+    ]);
 
-  const id = insert.rows[0].id;
+    const insertedId = rows[0]?.id;
+    logger.app('audit_append', {
+      id: insertedId,
+      user_id: userId,
+      event_type: eventType,
+    });
 
-  // 3) Read the row back as DB sees it
-  const rowRes = await db.query(
-    `SELECT id, event_ts, user_id, session_id, event_type, ip, user_agent, payload, prev_hash, hash
-     FROM audit_log
-     WHERE id = $1`,
-    [id]
-  );
-  const row = rowRes.rows[0];
-
-  // 4) Compute hash from DB row
-  const hash = computeHash(row.prev_hash, row);
-
-  // 5) Update hash column
-  await db.query(
-    'UPDATE audit_log SET hash = $1 WHERE id = $2',
-    [hash, id]
-  );
+    return { id: insertedId, prev_hash: prevHash, curr_hash: currHash };
+  } catch (err) {
+    logger.app('audit_append_error', {
+      message: err.message,
+      code: err.code,
+    });
+    throw err;
+  }
 }
 
 module.exports = {
   appendAuditEvent,
-  computeHash
+  buildChainPayload,
+  computeAuditHash,
 };

@@ -1,47 +1,60 @@
-// utils/authz.js — Postgres version (no SQLite PRAGMAs, no AUTOINCREMENT)
+// utils/authz.js
 'use strict';
 
-const { prepare } = require('../database');
-
 /**
- * Minimal RBAC:
- *  - "admin" role grants everything
- *  - Otherwise, permission must exist via role_permissions for (action, resource)
- *  - Scope: if orgUnitId is provided, allow if the user's assignment is either
- *    global (NULL org_unit_id) or matches the provided orgUnitId.
+ * Very small, synchronous RBAC helper for now.
+ *
+ * - Keeps the same API: can(user, action, resource, ctx?)
+ * - Does NOT talk to the database (no .prepare, no async).
+ * - Treats certain user IDs as "platform admins" who can do everything.
+ *
+ * This keeps /audit and other routes working while we finish
+ * the Postgres migration and clean up old SQLite-era ACL logic.
  */
 
-const qIsAdmin = prepare(`
-  SELECT 1
-    FROM assignments a
-    JOIN roles r ON r.id = a.role_id
-   WHERE a.user_id = ?
-     AND r.key = 'admin'
-   LIMIT 1
-`);
+// Comma-separated admin IDs in .env, fallback to "1"
+const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS || '1')
+  .split(',')
+  .map((s) => parseInt(s.trim(), 10))
+  .filter((n) => Number.isInteger(n));
 
-const qHasPerm = prepare(`
-  SELECT 1
-    FROM assignments a
-    JOIN roles r           ON r.id = a.role_id
-    JOIN role_permissions rp ON rp.role_id = r.id
-    JOIN permissions p     ON p.id = rp.permission_id
-   WHERE a.user_id = ?
-     AND p.action = ?
-     AND p.resource = ?
-     AND (a.org_unit_id IS NULL OR a.org_unit_id = COALESCE(?, a.org_unit_id))
-   LIMIT 1
-`);
-
-async function can(actor, action, resource, opts = {}) {
-  if (!actor || !actor.id) return false;
-  const orgUnitId = opts.orgUnitId ?? null;
-
-  // admins can do everything
-  if (await qIsAdmin.get(actor.id)) return true;
-
-  // otherwise check role->permission with optional scope
-  return !!(await qHasPerm.get(actor.id, String(action), String(resource), orgUnitId));
+function isAdmin(user) {
+  if (!user) return false;
+  const id = Number(user.id);
+  if (!Number.isInteger(id)) return false;
+  return ADMIN_USER_IDS.includes(id);
 }
 
-module.exports = { can };
+/**
+ * Main RBAC entry point.
+ *
+ * For now:
+ *  - Any configured admin user (ADMIN_USER_IDS) => full access.
+ *  - All other users => no special permissions yet (returns false).
+ *
+ * @param {object|null} user    e.g. { id: 1, email: 'demo.user@example.com' }
+ * @param {string}      action  e.g. 'read', 'manage'
+ * @param {string}      resource e.g. 'audit', 'audit_full'
+ * @param {object}      ctx      optional context (orgUnitId, etc.)
+ * @returns {boolean}
+ */
+function can(user, action, resource, ctx = {}) {
+  // No user => no access
+  if (!user) return false;
+
+  // Platform admins can do anything for now.
+  if (isAdmin(user)) {
+    return true;
+  }
+
+  // TODO: later, replace with real Postgres-backed RBAC using:
+  //  - assignments, roles, permissions, role_permissions, org_units
+  //  - ctx.orgUnitId scoping for audit access, etc.
+  // For now, non-admin users have no special privileges.
+  return false;
+}
+
+module.exports = {
+  can,
+  isAdmin,
+};

@@ -1,74 +1,18 @@
 #!/usr/bin/env node
-require('dotenv').config({ override: true });
+'use strict';
 
-const crypto = require('crypto');
+require('dotenv').config({ override: true, quiet: true });
+
 const db = require('../database');
-
-async function getTimestampColumn() {
-  const sql = `
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_name = 'audit_log'
-      AND column_name IN ('event_ts', 'created_at')
-    ORDER BY (column_name = 'event_ts') DESC
-    LIMIT 1;
-  `;
-  const res = await db.query(sql);
-  if (!res.rows.length) {
-    throw new Error('No timestamp column (event_ts/created_at) found on audit_log');
-  }
-  return res.rows[0].column_name;
-}
-
-async function getUserColumn() {
-  const sql = `
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_name = 'audit_log'
-      AND column_name IN ('user_id', 'actor_id')
-    ORDER BY (column_name = 'user_id') DESC
-    LIMIT 1;
-  `;
-  const res = await db.query(sql);
-  if (!res.rows.length) {
-    throw new Error('No user column (user_id/actor_id) found on audit_log');
-  }
-  return res.rows[0].column_name;
-}
-
-function computeHash(prevHash, row) {
-  const h = crypto.createHash('sha256');
-
-  // chain previous hash
-  h.update(String(prevHash || ''));
-
-  const payload = {
-    id: row.id,
-    user_id: row.user_id,
-    session_id: row.session_id,
-    event_type: row.event_type,
-    event_ts:
-      row.event_ts instanceof Date
-        ? row.event_ts.toISOString()
-        : String(row.event_ts),
-    ip: row.ip || null,
-    user_agent: row.user_agent || null,
-    payload: row.payload || {},
-  };
-
-  h.update(JSON.stringify(payload));
-  return h.digest('hex');
-}
+const { buildChainPayload, computeAuditHash } = require('../utils/audit');
 
 async function main() {
-  const tsCol = await getTimestampColumn();
-  const userCol = await getUserColumn();
-
+  // Pull all events in chain order
   const { rows } = await db.query(`
     SELECT
       id,
-      ${tsCol}   AS event_ts,
-      ${userCol} AS user_id,
+      event_ts,
+      user_id,
       session_id,
       event_type,
       ip,
@@ -88,17 +32,33 @@ async function main() {
   let prevHash = null;
 
   for (const row of rows) {
+    // 1) Check that prev_hash matches the previous curr_hash
     const expectedPrev = prevHash || null;
+    const actualPrev = row.prev_hash || null;
 
-    if ((row.prev_hash || null) !== expectedPrev) {
+    if (actualPrev !== expectedPrev) {
       console.error(
-        `❌ Hash mismatch at id=${row.id}: prev_hash=${row.prev_hash} expected=${expectedPrev}`
+        `❌ Hash mismatch at id=${row.id}: prev_hash=${actualPrev} expected=${expectedPrev}`
       );
       process.exit(1);
     }
 
-    const computed = computeHash(prevHash, row);
-    if (row.curr_hash !== computed) {
+    // 2) Recompute curr_hash using the *same* canonical function
+    const chainRow = {
+      user_id: row.user_id,
+      session_id: row.session_id,
+      event_type: row.event_type,
+      event_ts: row.event_ts instanceof Date
+        ? row.event_ts.toISOString()
+        : String(row.event_ts),
+      ip: row.ip,
+      user_agent: row.user_agent,
+      payload: row.payload,
+    };
+
+    const recomputed = computeAuditHash(prevHash, chainRow);
+
+    if (row.curr_hash !== recomputed) {
       console.error(
         `❌ Hash mismatch at id=${row.id}: stored curr_hash does not match recomputed hash`
       );

@@ -1,118 +1,136 @@
-const crypto = require('crypto');
+'use strict';
+
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../database');
+const { appendAuditEvent } = require('./audit');
 
-const ACCESS_TTL = process.env.JWT_ACCESS_TTL || '15m';
-const REFRESH_TTL = process.env.JWT_REFRESH_TTL || '30d';
-const JWT_SECRET  = process.env.JWT_SECRET || 'dev_only_change_me';
+const ACCESS_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const ACCESS_TTL = '15m'; // adjust later
 
-function base64url(buf) {
-  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-function generateOpaqueToken(bytes = 48) {
-  return base64url(crypto.randomBytes(bytes));
-}
-function hashToken(token) {
-  return crypto.createHash('sha256').update(token, 'utf8').digest(); // Buffer for bytea
-}
-function parseDurationToSeconds(s) {
-  if (!s) return 900;
-  if (/^\d+$/.test(s)) return parseInt(s, 10);
-  const m = s.match(/^(\d+)\s*([smhd])$/i);
-  if (!m) return 900;
-  const n = parseInt(m[1], 10);
-  const unit = m[2].toLowerCase();
-  const mult = unit === 's' ? 1 : unit === 'm' ? 60 : unit === 'h' ? 3600 : 86400;
-  return n * mult;
-}
-
-async function insertRefreshToken({ userId, refreshToken, ip, userAgent }) {
-  const expiresSec = parseDurationToSeconds(REFRESH_TTL);
-  const tokenHash = hashToken(refreshToken);
-  const res = await db.query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip, user_agent)
-     VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5)
-     RETURNING id, user_id, issued_at, expires_at`,
-    [userId, tokenHash, expiresSec, ip || null, userAgent || null]
-  );
-  return res.rows[0];
-}
-
-async function revokeRefreshByHash(token) {
-  const tokenHash = hashToken(token);
-  await db.query(
-    `UPDATE refresh_tokens
-        SET revoked_at = now(), revoke_reason = 'logout'
-      WHERE token_hash = $1 AND revoked_at IS NULL`,
-    [tokenHash]
-  );
-}
-
-async function revokeAllForUser(userId, reason = 'logout_all') {
-  await db.query(`SELECT revoke_all_refresh_tokens($1, $2)`, [userId, reason]);
-}
-
-async function findActiveRefreshByToken(token) {
-  const tokenHash = hashToken(token);
-  const res = await db.query(
-    `SELECT *
-       FROM refresh_tokens
-      WHERE token_hash = $1
-        AND revoked_at IS NULL
-        AND now() < expires_at
-      LIMIT 1`,
-    [tokenHash]
-  );
-  return res.rows[0] || null;
-}
-
-// Atomic rotation in one statement (no explicit transaction)
-async function rotateRefresh(oldRow, userId, meta) {
-  const newRefresh = generateOpaqueToken(48);
-  const newHash = hashToken(newRefresh);
-  const expiresSec = parseDurationToSeconds(REFRESH_TTL);
-
-  const res = await db.query(
-    `WITH updated AS (
-       UPDATE refresh_tokens
-          SET revoked_at = now(), revoke_reason = 'rotated'
-        WHERE id = $1 AND revoked_at IS NULL
-        RETURNING id
-     ), inserted AS (
-       INSERT INTO refresh_tokens (user_id, token_hash, expires_at, rotated_from, ip, user_agent)
-       VALUES ($2, $3, now() + ($4 || ' seconds')::interval, $1, $5, $6)
-       RETURNING id, user_id, issued_at, expires_at
-     )
-     SELECT * FROM inserted`,
-    [oldRow.id, userId, newHash, expiresSec, meta?.ip || null, meta?.ua || null]
-  );
-
-  return { record: res.rows[0], refreshToken: newRefresh };
-}
+// -------------------------------------------------------------
+// 1) Basic helpers
+// -------------------------------------------------------------
 
 function issueAccessToken(user) {
-  const payload = { sub: String(user.id) };
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TTL });
+  return jwt.sign(
+    {
+      sub: user.id,
+      typ: 'access'
+    },
+    ACCESS_SECRET,
+    { expiresIn: ACCESS_TTL }
+  );
 }
 
-async function issuePair(user, meta) {
-  const accessToken = issueAccessToken(user);
-  const refreshToken = generateOpaqueToken(48);
-  const rec = await insertRefreshToken({
-    userId: user.id,
-    refreshToken,
-    ip: meta?.ip,
-    userAgent: meta?.ua
-  });
-  return { accessToken, refreshToken, refreshId: rec.id, refreshExpiresAt: rec.expires_at };
+function generateRefreshToken() {
+  return crypto.randomBytes(32).toString('hex');
 }
+
+function hashToken(rawToken) {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
+// -------------------------------------------------------------
+// 2) Refresh-token storage
+// -------------------------------------------------------------
+
+async function storeRefreshToken(userId, rawToken, meta = {}) {
+  const tokenHash = hashToken(rawToken);
+
+  const sql = `
+    INSERT INTO refresh_tokens (user_id, token_hash, expires_at, issued_ip, issued_ua)
+    VALUES ($1, $2, NOW() + INTERVAL '30 days', $3, $4)
+    RETURNING *;
+  `;
+
+  const values = [
+    userId,
+    tokenHash,
+    meta.ip || null,
+    meta.ua || null
+  ];
+
+  const { rows } = await db.query(sql, values);
+  return rows[0];
+}
+
+async function findActiveRefreshByToken(rawToken) {
+  if (!rawToken) return null;
+  const hashed = hashToken(rawToken);
+
+  const sql = `
+    SELECT *
+    FROM refresh_tokens
+    WHERE token_hash = $1
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+    LIMIT 1;
+  `;
+
+  const { rows } = await db.query(sql, [hashed]);
+  return rows[0] || null;
+}
+
+// -------------------------------------------------------------
+// 3) Token rotation
+// -------------------------------------------------------------
+
+async function rotateRefresh(oldRow, userId, meta = {}) {
+  // 1) revoke old
+  await db.query(
+    `UPDATE refresh_tokens
+     SET revoked_at = NOW()
+     WHERE id = $1`,
+    [oldRow.id]
+  );
+
+  // 2) issue new
+  const newRaw = generateRefreshToken();
+  const newRow = await storeRefreshToken(userId, newRaw, meta);
+
+  return {
+    record: newRow,
+    refreshToken: newRaw
+  };
+}
+
+// -------------------------------------------------------------
+// 4) Revocation helpers
+// -------------------------------------------------------------
+
+async function revokeRefreshByHash(rawToken) {
+  const hashed = hashToken(rawToken);
+
+  await db.query(
+    `UPDATE refresh_tokens
+     SET revoked_at = NOW()
+     WHERE token_hash = $1`,
+    [hashed]
+  );
+}
+
+async function revokeAllForUser(userId) {
+  await db.query(
+    `UPDATE refresh_tokens
+     SET revoked_at = NOW()
+     WHERE user_id = $1
+       AND revoked_at IS NULL`,
+    [userId]
+  );
+}
+
+// -------------------------------------------------------------
+// Exports
+// -------------------------------------------------------------
 
 module.exports = {
-  issuePair,
   issueAccessToken,
+  generateRefreshToken,
+  hashToken,
+  storeRefreshToken,
   findActiveRefreshByToken,
   rotateRefresh,
   revokeRefreshByHash,
-  revokeAllForUser,
-  parseDurationToSeconds
+  revokeAllForUser
 };

@@ -1,39 +1,41 @@
 // utils/acl.js
+'use strict';
+
 const db = require('../database');
 
-// keep in sync with database.js CHECK(role IN (...))
-const ROLES = {
-  DASH: 'dashboard-admin',
-  GROUP: 'group-admin',
-};
+async function isInRole(userId, roleKey) {
+  if (!userId) return false;
 
-const STMT = {
-  isDash: db.prepare(`
-    SELECT 1 FROM memberships
-    WHERE user_id = ? AND role = ? LIMIT 1
-  `),
-  isGroupAdmin: db.prepare(`
-    SELECT 1 FROM memberships
-    WHERE user_id = ? AND group_id = ? AND role IN (?, ?) LIMIT 1
-  `),
-};
+  const sql = `
+    SELECT 1
+    FROM assignments a
+    JOIN roles r ON r.id = a.role_id
+    WHERE a.user_id = $1 AND r.key = $2
+    LIMIT 1;
+  `;
 
-function isDashboardAdmin(userId) {
-  const id = Number(userId);
-  if (!Number.isInteger(id) || id <= 0) return false;
-  return !!STMT.isDash.get(id, ROLES.DASH);
+  const { rows } = await db.query(sql, [userId, roleKey]);
+  return rows.length > 0;
 }
 
-function isGroupAdmin(userId, groupId) {
-  const uid = Number(userId);
-  const gid = Number(groupId);
-  if (!Number.isInteger(uid) || uid <= 0) return false;
-  if (!Number.isInteger(gid) || gid <= 0) return false;
-  return !!STMT.isGroupAdmin.get(uid, gid, ROLES.GROUP, ROLES.DASH);
+// Example permission check
+async function can(userId, action, resource) {
+  if (!userId) return false;
+
+  const sql = `
+    SELECT 1
+    FROM assignments a
+    JOIN roles r ON r.id = a.role_id
+    JOIN role_permissions rp ON rp.role_id = r.id
+    JOIN permissions p ON p.id = rp.permission_id
+    WHERE a.user_id = $1
+      AND p.action = $2
+      AND p.resource = $3
+    LIMIT 1;
+  `;
+
+  const { rows } = await db.query(sql, [userId, action, resource]);
+  return rows.length > 0;
 }
 
-function canManageGroup(userId, groupId) {
-  return isDashboardAdmin(userId) || isGroupAdmin(userId, groupId);
-}
-
-module.exports = { isDashboardAdmin, isGroupAdmin, canManageGroup };
+module.exports = { isInRole, can };

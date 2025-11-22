@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* scripts/migrate.js — Postgres schema (idempotent) */
+/* scripts/migrate.js — Postgres schema (idempotent, single pass) */
 'use strict';
 
 const { query } = require('../database');
@@ -7,14 +7,15 @@ require('dotenv').config({ override: true, quiet: true });
 
 async function migrate() {
 
-  // -----------------------------
+  // ------------------------------------------------------------
   // Users / basic entities
-  // -----------------------------
+  // ------------------------------------------------------------
   await query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       name VARCHAR(100) NOT NULL,
       email VARCHAR(100) UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
       org_id INTEGER NOT NULL DEFAULT 1
     );
   `);
@@ -36,30 +37,39 @@ async function migrate() {
       role VARCHAR(50) NOT NULL
     );
   `);
+
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_membership
       ON memberships(user_id, group_id);
   `);
 
+  // ------------------------------------------------------------
   // Org units
+  // ------------------------------------------------------------
   await query(`
     CREATE TABLE IF NOT EXISTS org_units (
       id SERIAL PRIMARY KEY,
       org_id INTEGER NOT NULL DEFAULT 1,
       parent_id INTEGER REFERENCES org_units(id) ON DELETE SET NULL,
-      type VARCHAR(50) NOT NULL CHECK (type IN ('business_unit','region','team','distributor','reseller')),
+      type VARCHAR(50) NOT NULL CHECK (
+        type IN ('business_unit','region','team','distributor','reseller')
+      ),
       name VARCHAR(100) NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id)`);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);`);
+
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_orgunit_org_parent_type_name
       ON org_units (org_id, COALESCE(parent_id, 0), type, name);
   `);
 
+  // ------------------------------------------------------------
   // RBAC tables
+  // ------------------------------------------------------------
   await query(`
     CREATE TABLE IF NOT EXISTS roles (
       id SERIAL PRIMARY KEY,
@@ -94,24 +104,68 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS idx_assign_user ON assignments(user_id)`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_assign_org  ON assignments(org_unit_id)`);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_assign_user ON assignments(user_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_assign_org  ON assignments(org_unit_id);`);
+
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_assignment_user_role_scope
       ON assignments(user_id, role_id, COALESCE(org_unit_id, 0));
   `);
 
+  // ------------------------------------------------------------
+  // Refresh tokens (Argon2id auth, multi-session)
+  // ------------------------------------------------------------
+  await query(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      replaced_by BIGINT REFERENCES refresh_tokens(id) ON DELETE SET NULL,
+      issued_ip TEXT,
+      issued_ua TEXT
+    );
+  `);
 
-  // =====================================================
-  // 🟩 AUDIT LOG (FINAL HASH-CHAIN SCHEMA)
-  // =====================================================
+  await query(`CREATE INDEX IF NOT EXISTS idx_refresh_user       ON refresh_tokens(user_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_refresh_token_hash ON refresh_tokens(token_hash);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_refresh_expires    ON refresh_tokens(expires_at);`);
+
+  // Safety: if table already existed from older migration, make sure columns are present
+  await query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'refresh_tokens' AND column_name = 'issued_ip'
+      ) THEN
+        ALTER TABLE refresh_tokens ADD COLUMN issued_ip TEXT;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'refresh_tokens' AND column_name = 'issued_ua'
+      ) THEN
+        ALTER TABLE refresh_tokens ADD COLUMN issued_ua TEXT;
+      END IF;
+    END
+    $$;
+  `);
+
+  // ------------------------------------------------------------
+  // Audit log with hash-chain (GDPR / Works Council)
+  // ------------------------------------------------------------
   await query(`
     CREATE TABLE IF NOT EXISTS audit_log (
       id BIGSERIAL PRIMARY KEY,
-      event_ts   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      actor_id   INTEGER,
       user_id    INTEGER,
       session_id UUID,
       event_type TEXT NOT NULL,
+      event_ts   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ip         TEXT,
       user_agent TEXT,
       payload    JSONB,
@@ -120,14 +174,14 @@ async function migrate() {
     );
   `);
 
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_ts ON audit_log(event_ts)`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_id  ON audit_log(user_id)`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event    ON audit_log(event_type)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_actor_id ON audit_log(actor_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event_ts ON audit_log(event_ts);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_id  ON audit_log(user_id);`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_event    ON audit_log(event_type);`);
 
-
-  // -----------------------------
+  // ------------------------------------------------------------
   // Seed RBAC (idempotent)
-  // -----------------------------
+  // ------------------------------------------------------------
   await query(`
     INSERT INTO permissions (action, resource) VALUES
       ('manage','users'),
